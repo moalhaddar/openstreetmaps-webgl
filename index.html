@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <script id="node-vertex-shader" type="shader">
+            attribute vec2 a_position;
+            uniform vec2 u_offset;
+            uniform vec2 u_scale;
+
+            void main() {
+                vec2 newPosition = (a_position + (u_offset)) * u_scale;
+                gl_Position = vec4(newPosition, 0, 1);
+            }
+        </script>
+        <script id="node-fragment-shader" type="shader">
+            precision mediump float;
+
+            void main() {
+                gl_FragColor = vec4(1, 0, 0.5, 1);
+            }
+        </script>
+
+        <script id="way-vertex-shader" type="shader">
+            attribute vec2 a_position;
+            uniform vec2 u_offset;
+            uniform vec2 u_scale;
+
+            void main() {
+                vec2 newPosition = (a_position + (u_offset)) * u_scale;
+                gl_Position = vec4(newPosition, 0, 1);
+            }
+        </script>
+        <script id="way-fragment-shader" type="shader">
+            precision mediump float;
+
+            void main() {
+                gl_FragColor = vec4(0, 0, 0, 1);
+            }
+        </script>
+        <script src="index.js" type="module"></script>
+
+        <style>
+            #canvas {
+                border: 1px solid black;
+            }
+        </style>
+    </head>
+    <body>
+        <canvas id="canvas" width="800" height="600"></canvas>
+    </body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "webgl-probe",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "watch": "tsc --watch",
+    "serve": "python3 -m http.server"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}
