@@ -7,8 +7,8 @@
             uniform vec2 u_scale;
 
             void main() {
-                vec2 newPosition = (a_position + (u_offset)) * u_scale;
-                gl_Position = vec4(newPosition, 0, 1);
+                vec2 final_position = (a_position + (u_offset)) * u_scale;
+                gl_Position = vec4(final_position, 0, 1);
             }
         </script>
         <script id="node-fragment-shader" type="shader">
@@ -25,8 +25,8 @@
             uniform vec2 u_scale;
 
             void main() {
-                vec2 newPosition = (a_position + (u_offset)) * u_scale;
-                gl_Position = vec4(newPosition, 0, 1);
+                vec2 final_position = (a_position + (u_offset)) * u_scale;
+                gl_Position = vec4(final_position, 0, 1);
             }
         </script>
         <script id="way-fragment-shader" type="shader">
