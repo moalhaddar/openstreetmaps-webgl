@@ -206,6 +206,8 @@ window.addEventListener('load', async () => {
     let center = [-0.5, -0.5];
     let anchor: [number, number] | undefined = undefined;
     let scale = 1;
+    let targetScale = 1;
+    let previous_render_timestamp = 0;
 
     // Events
     canvas.addEventListener('mousedown', (e) => {
@@ -228,8 +230,8 @@ window.addEventListener('load', async () => {
         const dx = (x / canvas.width) - anchor[0];
         const dy = -((y / canvas.height) - anchor[1]);
         center = [
-            center[0] + (dx / scale),
-            center[1] + (dy / scale)
+            center[0] + (dx / scale) * 2,
+            center[1] + (dy / scale) * 2
         ]
 
         anchor = [
@@ -241,9 +243,9 @@ window.addEventListener('load', async () => {
 
     canvas.addEventListener('wheel', (e) => {
         if (e.deltaY < 0) {
-            scale++;
-        } else if (scale > 1) {
-            scale--;
+            targetScale++;
+        } else if (targetScale - 1 > 0) {
+            targetScale--;
         }
     })
 
@@ -270,7 +272,9 @@ window.addEventListener('load', async () => {
     }
 
     // Drawing Loop
-    const loop = () => {
+    const loop = (timestamp: number) => {
+        const dt = (timestamp -  previous_render_timestamp) / 1000;
+        previous_render_timestamp = timestamp;
         // red, green, blue, alpha
         gl.clearColor(0, 0, 0, 1);
         gl.clear(gl.COLOR_BUFFER_BIT);
@@ -279,8 +283,14 @@ window.addEventListener('load', async () => {
         drawWays();
         // drawNodes()
     
+        
+        scale += (targetScale - scale) * 10 * dt;
         window.requestAnimationFrame(loop);
     }
-    window.requestAnimationFrame(loop);
+    window.requestAnimationFrame((timestamp) => {
+        previous_render_timestamp = timestamp;
+
+        window.requestAnimationFrame(loop);
+    });
     
 })

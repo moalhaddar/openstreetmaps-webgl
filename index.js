@@ -191,6 +191,8 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
     let center = [-0.5, -0.5];
     let anchor = undefined;
     let scale = 1;
+    let targetScale = 1;
+    let previous_render_timestamp = 0;
     // Events
     canvas.addEventListener('mousedown', (e) => {
         const { x, y } = getMouseCanvasPosition(canvas, e);
@@ -210,8 +212,8 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
             const dx = (x / canvas.width) - anchor[0];
             const dy = -((y / canvas.height) - anchor[1]);
             center = [
-                center[0] + (dx / scale),
-                center[1] + (dy / scale)
+                center[0] + (dx / scale) * 2,
+                center[1] + (dy / scale) * 2
             ];
             anchor = [
                 x / canvas.width,
@@ -221,10 +223,10 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
     });
     canvas.addEventListener('wheel', (e) => {
         if (e.deltaY < 0) {
-            scale++;
+            targetScale++;
         }
-        else if (scale > 1) {
-            scale--;
+        else if (targetScale - 1 > 0) {
+            targetScale--;
         }
     });
     const drawNodes = () => {
@@ -248,15 +250,21 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         gl.drawArrays(gl.LINES, 0, normalized_ways_nodes.length);
     };
     // Drawing Loop
-    const loop = () => {
+    const loop = (timestamp) => {
+        const dt = (timestamp - previous_render_timestamp) / 1000;
+        previous_render_timestamp = timestamp;
         // red, green, blue, alpha
         gl.clearColor(0, 0, 0, 1);
         gl.clear(gl.COLOR_BUFFER_BIT);
         gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
         drawWays();
         // drawNodes()
+        scale += (targetScale - scale) * 10 * dt;
         window.requestAnimationFrame(loop);
     };
-    window.requestAnimationFrame(loop);
+    window.requestAnimationFrame((timestamp) => {
+        previous_render_timestamp = timestamp;
+        window.requestAnimationFrame(loop);
+    });
 }));
 //# sourceMappingURL=index.js.map
