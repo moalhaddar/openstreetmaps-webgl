@@ -83,7 +83,7 @@ function normalizeNodes(nodes: OSMNode[]): OSMNode[] {
 
     return nodes.map(node => ({
         lat: (node.lat - minLat) / latRange,
-        lon: ((node.lon - minLon) / lonRange) * 2
+        lon: ((node.lon - minLon) / lonRange)
     }));
 }
 
