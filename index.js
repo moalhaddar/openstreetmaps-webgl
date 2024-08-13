@@ -186,7 +186,7 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
     gl.bindBuffer(gl.ARRAY_BUFFER, way_position_buffer);
     gl.bufferData(gl.ARRAY_BUFFER, nodesToFloat32Array(normalized_ways_nodes), gl.STATIC_DRAW);
     // State
-    let offset = [-1, -0.5];
+    let center = [-1, -0.5];
     let anchor = undefined;
     let scale = 1;
     // Events
@@ -207,9 +207,9 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
             const { x, y } = getMouseCanvasPosition(canvas, e);
             const dx = (x / canvas.width) - anchor[0];
             const dy = -((y / canvas.height) - anchor[1]);
-            offset = [
-                offset[0] + (dx / scale),
-                offset[1] + (dy / scale)
+            center = [
+                center[0] + (dx / scale),
+                center[1] + (dy / scale)
             ];
             anchor = [
                 x / canvas.width,
@@ -231,7 +231,7 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         gl.bindBuffer(gl.ARRAY_BUFFER, node_position_buffer);
         const COMPONENTS_PER_NODE = 2;
         gl.vertexAttribPointer(node_position_location, COMPONENTS_PER_NODE, gl.FLOAT, false, 0, 0);
-        gl.uniform2fv(node_offset_location, offset);
+        gl.uniform2fv(node_offset_location, center);
         gl.uniform2fv(node_scale_location, [scale, scale]);
         gl.drawArrays(gl.POINTS, 0, normalized_nodes.length / COMPONENTS_PER_NODE);
     };
@@ -241,7 +241,7 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         gl.bindBuffer(gl.ARRAY_BUFFER, way_position_buffer);
         const COMPONENTS_PER_WAY = 2;
         gl.vertexAttribPointer(way_position_location, COMPONENTS_PER_WAY, gl.FLOAT, false, 0, 0);
-        gl.uniform2fv(way_offset_location, offset);
+        gl.uniform2fv(way_offset_location, center);
         gl.uniform2fv(way_scale_location, [scale, scale]);
         gl.drawArrays(gl.LINES, 0, normalized_ways_nodes.length);
     };
