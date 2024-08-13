@@ -163,6 +163,8 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
     const normalized_ways_nodes = normalizeNodes(ways);
     const gl = initGl();
     const canvas = document.getElementById("canvas");
+    canvas.width = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
     // Setup node shader.
     const [node_vertex_source, node_fragment_source] = loadSources('#node-vertex-shader', '#node-fragment-shader');
     const node_vertex_shader = createShader(gl, 'vertex', node_vertex_source);
@@ -248,7 +250,7 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
     // Drawing Loop
     const loop = () => {
         // red, green, blue, alpha
-        gl.clearColor(0, 0, 0, 0);
+        gl.clearColor(0, 0, 0, 1);
         gl.clear(gl.COLOR_BUFFER_BIT);
         gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
         drawWays();
