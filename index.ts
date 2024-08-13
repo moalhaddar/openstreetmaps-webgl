@@ -203,7 +203,7 @@ window.addEventListener('load', async () => {
     gl.bufferData(gl.ARRAY_BUFFER, nodesToFloat32Array(normalized_ways_nodes), gl.STATIC_DRAW);
 
     // State
-    let center = [-1, -0.5];
+    let center = [-0.5, -0.5];
     let anchor: [number, number] | undefined = undefined;
     let scale = 1;
 
