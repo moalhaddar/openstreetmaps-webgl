@@ -21,54 +21,52 @@ function getNodesFromXml(xml) {
     for (let i = 0; i < nodesXml.length; i++) {
         const lat = nodesXml[i].getAttribute('lat');
         const lon = nodesXml[i].getAttribute('lon');
-        if (lat === null || lon === null) {
-            throw new Error(`Invalid lat/lon values: ${lat}, ${lon}`);
+        const id = nodesXml[i].getAttribute('id');
+        if (id === null || lat === null || lon === null) {
+            throw new Error(`Invalid id/lat/lon values: ${id}, ${lat}, ${lon}`);
         }
         nodes.push({
+            id: parseInt(id),
             lat: parseFloat(lat),
             lon: parseFloat(lon)
         });
     }
     return nodes;
 }
-function getWayNodesFromXml(xml) {
+function getWaysFromXml(xml) {
     const waysXml = Array.from(xml.getElementsByTagName('way'));
-    const nodes = [];
+    const ways = [];
     for (let i = 0; i < waysXml.length; i++) {
-        const wayNodes = Array.from(waysXml[i].getElementsByTagName('nd'));
-        if (wayNodes.length <= 1)
-            continue; // We skip ways with a single node.
-        for (let j = 0; j < wayNodes.length; j++) {
-            const ref = wayNodes[j].getAttribute("ref");
-            const nodeXml = xml.querySelector(`node[id="${ref}"]`);
-            if (!nodeXml)
-                continue;
-            const lon = nodeXml.getAttribute('lon');
-            const lat = nodeXml.getAttribute('lat');
-            if (lat === null || lon === null) {
-                throw new Error(`Invalid lat/lon values: ${lat}, ${lon}`);
-            }
-            // A hack to be able to draw gl.LINES
-            if (nodes.length % 2 === 0 || j + 1 >= wayNodes.length) {
-                nodes.push({
-                    lat: parseFloat(lat),
-                    lon: parseFloat(lon)
-                });
-            }
-            else {
-                nodes.push({
-                    lat: parseFloat(lat),
-                    lon: parseFloat(lon)
-                }, {
-                    lat: parseFloat(lat),
-                    lon: parseFloat(lon)
-                });
-            }
+        const nodes = Array.from(waysXml[i].getElementsByTagName('nd'));
+        const tags = Array.from(waysXml[i].getElementsByTagName('tag'));
+        /**
+         * "It is possible that faulty ways with zero or one node exist"
+         * From: https://wiki.openstreetmap.org/wiki/Way
+         */
+        if (nodes.length <= 1)
+            continue;
+        const way = {
+            node_ids: [],
+            tags: new Map()
+        };
+        for (let j = 0; j < nodes.length; j++) {
+            const ref = nodes[j].getAttribute("ref");
+            if (!ref)
+                throw new Error("Invalid node ref");
+            way.node_ids.push(Number(ref));
         }
+        for (let j = 0; j < tags.length; j++) {
+            const key = tags[j].getAttribute("k");
+            const value = tags[j].getAttribute("v");
+            if (!key || !value)
+                throw new Error("Invalid key/value pair");
+            way.tags.set(key, value);
+        }
+        ways.push(way);
     }
-    return nodes;
+    return ways;
 }
-function normalizeNodes(nodes) {
+function generateMetadata(nodes) {
     let minLat = Number.MAX_VALUE;
     let maxLat = Number.MIN_VALUE;
     let minLon = Number.MAX_VALUE;
@@ -79,14 +77,25 @@ function normalizeNodes(nodes) {
         minLon = Math.min(minLon, node.lon);
         maxLon = Math.max(maxLon, node.lon);
     }
+    return {
+        minLat,
+        maxLat,
+        minLon,
+        maxLon,
+        nodesCount: nodes.length
+    };
+}
+function normalizeNodes(metadata, nodes) {
+    const { maxLat, minLat, maxLon, minLon } = metadata;
     const latRange = maxLat - minLat;
     const lonRange = maxLon - minLon;
     return nodes.map(node => ({
+        id: node.id,
         lat: (node.lat - minLat) / latRange,
         lon: ((node.lon - minLon) / lonRange)
     }));
 }
-function nodesToFloat32Array(nodes) {
+function nodesToFloat32LonLatArray(nodes) {
     const flat = [];
     for (let i = 0; i < nodes.length; i++) {
         flat.push(nodes[i].lon, nodes[i].lat);
@@ -136,7 +145,7 @@ function loadSources(vertexId, fragmentId) {
 }
 function initGl() {
     const canvas = document.getElementById("canvas");
-    const gl = canvas.getContext('webgl');
+    const gl = canvas.getContext('webgl2');
     if (!gl) {
         throw new Error("Cannot create webgl context");
     }
@@ -149,18 +158,38 @@ function getMouseCanvasPosition(canvas, e) {
         y: e.clientY - rect.top
     };
 }
+function makeNodesIdIdxMap(nodes) {
+    const map = new Map();
+    for (let i = 0; i < nodes.length; i++) {
+        map.set(nodes[i].id, i);
+    }
+    return map;
+}
+function makeWayNodesIdxsFor(type, ways, nodeIdIdxMap) {
+    const wayNodesIdxs = [];
+    for (let i = 0; i < ways.length; i++) {
+        if (!ways[i].tags.get(type))
+            continue;
+        for (let j = 0; j < ways[i].node_ids.length; j++) {
+            const nodeId = ways[i].node_ids[j];
+            const idx = nodeIdIdxMap.get(nodeId);
+            if (idx === undefined)
+                throw new Error(`Invalid node id ${nodeId} referenced in a way ${i}, but not found in root data`);
+            wayNodesIdxs.push(idx);
+        }
+        wayNodesIdxs.push(0xFFFFFFFF);
+    }
+    return wayNodesIdxs;
+}
 window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function* () {
-    console.time("parse");
     const xmlDoc = yield parseOSMXML();
-    console.timeEnd("parse");
-    console.time("Nodes");
     const nodes = getNodesFromXml(xmlDoc);
-    console.timeEnd("Nodes");
-    console.time("Ways");
-    const ways = getWayNodesFromXml(xmlDoc);
-    console.timeEnd("Ways");
-    const normalized_nodes = normalizeNodes(nodes);
-    const normalized_ways_nodes = normalizeNodes(ways);
+    const ways = getWaysFromXml(xmlDoc);
+    const metadata = generateMetadata(nodes);
+    const nodesFloat32LonLatArray = nodesToFloat32LonLatArray(normalizeNodes(metadata, nodes));
+    const nodeIdIdxMap = makeNodesIdIdxMap(nodes);
+    const buildingNodesIdxs = makeWayNodesIdxsFor("building", ways, nodeIdIdxMap);
+    const highwayNodesIdxs = makeWayNodesIdxsFor("highway", ways, nodeIdIdxMap);
     const gl = initGl();
     const canvas = document.getElementById("canvas");
     canvas.width = canvas.clientWidth;
@@ -175,7 +204,7 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
     const node_scale_location = gl.getUniformLocation(node_program, 'u_scale');
     const node_position_buffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, node_position_buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, nodesToFloat32Array(normalized_nodes), gl.STATIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, nodesFloat32LonLatArray, gl.STATIC_DRAW);
     // Setup Ways shader.
     const [way_vertex_source, way_fragment_source] = loadSources('#way-vertex-shader', '#way-fragment-shader');
     const way_vertex_shader = createShader(gl, 'vertex', way_vertex_source);
@@ -184,9 +213,16 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
     const way_position_location = gl.getAttribLocation(way_program, 'a_position');
     const way_offset_location = gl.getUniformLocation(way_program, 'u_offset');
     const way_scale_location = gl.getUniformLocation(way_program, 'u_scale');
+    const way_color_location = gl.getUniformLocation(way_program, 'u_color');
     const way_position_buffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, way_position_buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, nodesToFloat32Array(normalized_ways_nodes), gl.STATIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, nodesFloat32LonLatArray, gl.STATIC_DRAW);
+    const building_nodes_index_buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, building_nodes_index_buffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(buildingNodesIdxs), gl.STATIC_DRAW);
+    const highway_nodes_index_buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, highway_nodes_index_buffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(highwayNodesIdxs), gl.STATIC_DRAW);
     // State
     let center = [-0.5, -0.5];
     let anchor = undefined;
@@ -237,7 +273,8 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         gl.vertexAttribPointer(node_position_location, COMPONENTS_PER_NODE, gl.FLOAT, false, 0, 0);
         gl.uniform2fv(node_offset_location, center);
         gl.uniform2fv(node_scale_location, [scale, scale]);
-        gl.drawArrays(gl.POINTS, 0, normalized_nodes.length / COMPONENTS_PER_NODE);
+        gl.drawArrays(gl.POINTS, 0, nodesFloat32LonLatArray.length / COMPONENTS_PER_NODE // How many points
+        );
     };
     const drawWays = () => {
         gl.useProgram(way_program);
@@ -247,7 +284,12 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         gl.vertexAttribPointer(way_position_location, COMPONENTS_PER_WAY, gl.FLOAT, false, 0, 0);
         gl.uniform2fv(way_offset_location, center);
         gl.uniform2fv(way_scale_location, [scale, scale]);
-        gl.drawArrays(gl.LINES, 0, normalized_ways_nodes.length);
+        gl.uniform4fv(way_color_location, [0.5, 0.35, 0.61, 1]);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, building_nodes_index_buffer);
+        gl.drawElements(gl.TRIANGLE_STRIP, buildingNodesIdxs.length, gl.UNSIGNED_INT, 0);
+        gl.uniform4fv(way_color_location, [0, 0.8, 0.99, 1]);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, highway_nodes_index_buffer);
+        gl.drawElements(gl.LINE_STRIP, highwayNodesIdxs.length, gl.UNSIGNED_INT, 0);
     };
     // Drawing Loop
     const loop = (timestamp) => {
