@@ -27,12 +27,6 @@ class BucketMap {
         }
         return [x, y];
     }
-    getBucketEntriesForLonLat(lon, lat) {
-        var _a;
-        let [x, y] = this.getBucketIndexForLonLat(lon, lat);
-        console.log(x, y);
-        return (_a = this.data.get(x)) === null || _a === void 0 ? void 0 : _a.get(y);
-    }
     getBucketEntriesForClipspace(x, y) {
         var _a;
         x = x * this.cols;

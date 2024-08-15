@@ -43,14 +43,6 @@ class BucketMap {
         return [x, y];
     }
 
-    getBucketEntriesForLonLat(lon: number, lat: number): BucketEntry[] | undefined {
-        let [x, y] = this.getBucketIndexForLonLat(lon, lat)
-
-        console.log(x, y);
-
-        return this.data.get(x)?.get(y);
-    }
-
     getBucketEntriesForClipspace(x: number, y: number): BucketEntry[] | undefined {
         x = x * this.cols;
         y = y * this.rows;
