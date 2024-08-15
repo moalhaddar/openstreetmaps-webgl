@@ -1,3 +1,5 @@
+import { Matrix } from "./matrix.js"
+
 type OSMNode = {
     id: number;
     lat: number;
@@ -12,9 +14,9 @@ type State = {
     // Shader
     program: WebGLProgram,
     position_location: number,
-    offset_location: WebGLUniformLocation,
-    scale_location: WebGLUniformLocation,
-    color_location: WebGLUniformLocation,
+    u_matrix_location: WebGLUniformLocation,
+    u_color_location: WebGLUniformLocation,
+    mat: Matrix;
 
     // transformations
     axisOffset: [number, number]
@@ -226,10 +228,8 @@ function initShader(vertexShaderIdL: string, fragmentShaderId: string) {
 
     state.position_location = state.gl.getAttribLocation(state.program, 'a_position');
     state.gl.enableVertexAttribArray(state.position_location);
-
-    state.offset_location = state.gl.getUniformLocation(state.program, 'u_offset') as WebGLUniformLocation;
-    state.scale_location = state.gl.getUniformLocation(state.program, 'u_scale') as WebGLUniformLocation;
-    state.color_location = state.gl.getUniformLocation(state.program, 'u_color') as WebGLUniformLocation;
+    state.u_color_location = state.gl.getUniformLocation(state.program, 'u_color') as WebGLUniformLocation;
+    state.u_matrix_location = state.gl.getUniformLocation(state.program, 'u_matrix') as WebGLUniformLocation;
 }
 
 function getMouseCanvasPosition(e: MouseEvent): { x: number, y: number } {
@@ -297,9 +297,7 @@ function drawLine(x1: number, y1: number, x2: number, y2: number) {
     state.gl.bufferData(state.gl.ARRAY_BUFFER, new Float32Array([x1, y1, x2, y2]), state.gl.STATIC_DRAW);
     const COMPONENTS_PER_AXIS = 2;
     state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_AXIS, state.gl.FLOAT, false, 0, 0);
-    state.gl.uniform2fv(state.offset_location, state.axisOffset);
-    state.gl.uniform2fv(state.scale_location, [state.scale, state.scale]);
-    state.gl.uniform4fv(state.color_location, [1, 0, 0, 1]);
+    state.gl.uniform4fv(state.u_color_location, [1, 0, 0, 1]);
     state.gl.drawArrays(state.gl.LINES, 0, 2);
 }
 
@@ -319,9 +317,7 @@ function drawCircle(cx: number, cy: number, r: number) {
     state.gl.bufferData(state.gl.ARRAY_BUFFER, new Float32Array(points), state.gl.STATIC_DRAW);
     const COMPONENTS_PER_AXIS = 2;
     state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_AXIS, state.gl.FLOAT, false, 0, 0);
-    state.gl.uniform2fv(state.offset_location, state.axisOffset);
-    state.gl.uniform2fv(state.scale_location, [state.scale, state.scale]);
-    state.gl.uniform4fv(state.color_location, [1, 0, 0, 1]);
+    state.gl.uniform4fv(state.u_color_location, [1, 0, 0, 1]);
     state.gl.drawArrays(state.gl.TRIANGLE_FAN, 0, points.length / 2);
     state.gl.deleteBuffer(vbo);
 }
@@ -401,9 +397,10 @@ window.addEventListener('load', async () => {
         state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
         const COMPONENTS_PER_NODE = 2;
         state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_NODE, state.gl.FLOAT, false, 0, 0);
-        state.gl.uniform2fv(state.offset_location, state.axisOffset);
-        state.gl.uniform2fv(state.scale_location, [state.scale, state.scale]);
-        state.gl.uniform4fv(state.color_location, [0, 1, 0, 1]);
+        
+        state.gl.uniformMatrix3fv(state.u_matrix_location, false, state.mat.data);
+        state.gl.uniform4fv(state.u_color_location, [0, 1, 0, 1]);
+
         state.gl.drawArrays(
             state.gl.POINTS,
             0,
@@ -415,15 +412,15 @@ window.addEventListener('load', async () => {
         state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
         const COMPONENTS_PER_WAY = 2;
         state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_WAY, state.gl.FLOAT, false, 0, 0);
-        state.gl.uniform2fv(state.offset_location, state.axisOffset);
-        state.gl.uniform2fv(state.scale_location, [state.scale, state.scale]);
 
-        state.gl.uniform4fv(state.color_location, [0.5, 0.35, 0.61, 1]);
+        state.gl.uniformMatrix3fv(state.u_matrix_location, false, state.mat.data);
+        state.gl.uniform4fv(state.u_color_location, [0.5, 0.35, 0.61, 1]);
+
         state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, building_nodes_index_buffer);
         // Count is for the elements in the ebo, not vbo.
         state.gl.drawElements(state.gl.TRIANGLE_STRIP, buildingNodesIdxs.length, state.gl.UNSIGNED_INT, 0);
 
-        state.gl.uniform4fv(state.color_location, [0, 0.8, 0.99, 1]);
+        state.gl.uniform4fv(state.u_color_location, [0, 0.8, 0.99, 1]);
         state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, highnodes_index_buffer);
         state.gl.drawElements(state.gl.LINE_STRIP, highwayNodesIdxs.length, state.gl.UNSIGNED_INT, 0);
     }
@@ -442,8 +439,15 @@ window.addEventListener('load', async () => {
         state.gl.clear(state.gl.COLOR_BUFFER_BIT);
         state.gl.viewport(0, 0, state.gl.canvas.width, state.gl.canvas.height);
 
+        state.mat = Matrix.identity();
+        state.mat = state.mat.translate(state.axisOffset[0], state.axisOffset[1]);
+        state.mat = state.mat.rotate(0);
+        state.mat = state.mat.scale(state.scale, state.scale);
+
+        console.log(state.mat.data)
+
         drawWays();
-        drawNodes();
+        // drawNodes();
         drawClipAxis();
         if (state.mouseClipPosition) {
             const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.axisOffset);
