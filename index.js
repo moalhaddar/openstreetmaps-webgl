@@ -158,6 +158,22 @@ function getMouseCanvasPosition(canvas, e) {
         y: e.clientY - rect.top
     };
 }
+function getMouseClipPosition(canvas, e) {
+    const { x, y } = getMouseCanvasPosition(canvas, e);
+    // [0..1]
+    let normalizedCanvasX = x / canvas.width;
+    let normalizedCanvasY = y / canvas.height;
+    // [0, 2]
+    normalizedCanvasX *= 2;
+    normalizedCanvasY *= 2;
+    // [-1, 1]
+    normalizedCanvasX -= 1;
+    normalizedCanvasY -= 1;
+    return {
+        x: normalizedCanvasX,
+        y: normalizedCanvasY * -1 // We invert the y axis
+    };
+}
 function makeNodesIdIdxMap(nodes) {
     const map = new Map();
     for (let i = 0; i < nodes.length; i++) {
@@ -229,13 +245,11 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
     let scale = 1;
     let targetScale = 1;
     let previous_render_timestamp = 0;
+    let mousePosition = undefined;
     // Events
     canvas.addEventListener('mousedown', (e) => {
-        const { x, y } = getMouseCanvasPosition(canvas, e);
-        anchor = [
-            x / canvas.width,
-            y / canvas.height
-        ];
+        const { x, y } = getMouseClipPosition(canvas, e);
+        anchor = [x, y];
     });
     canvas.addEventListener('mouseup', () => {
         if (anchor) {
@@ -243,18 +257,16 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         }
     });
     canvas.addEventListener('mousemove', (e) => {
+        const { x, y } = getMouseClipPosition(canvas, e);
+        mousePosition = [x, y];
         if (anchor) {
-            const { x, y } = getMouseCanvasPosition(canvas, e);
-            const dx = (x / canvas.width) - anchor[0];
-            const dy = -((y / canvas.height) - anchor[1]);
+            const dx = mousePosition[0] - anchor[0];
+            const dy = mousePosition[1] - anchor[1];
             center = [
-                center[0] + (dx / scale) * 2,
+                center[0] + (dx / scale) * 2, // TODO; figure out why 2 works out.
                 center[1] + (dy / scale) * 2
             ];
-            anchor = [
-                x / canvas.width,
-                y / canvas.height
-            ];
+            anchor = [x, y];
         }
     });
     canvas.addEventListener('wheel', (e) => {
@@ -304,6 +316,28 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         gl.uniform2fv(way_scale_location, [scale, scale]);
         gl.uniform4fv(way_color_location, [1, 0, 0, 1]);
         gl.drawArrays(gl.LINES, 0, 4);
+        gl.deleteBuffer(vbo);
+    };
+    const drawMouseCircle = (cx, cy, r) => {
+        gl.useProgram(way_program);
+        gl.enableVertexAttribArray(way_position_location);
+        const vbo = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+        const RESOLUTION = 200;
+        const points = [cx, cy];
+        for (let i = 0; i <= RESOLUTION; i++) {
+            const x = r * Math.cos((i * Math.PI * 2) / RESOLUTION);
+            const y = r * Math.sin((i * Math.PI * 2) / RESOLUTION);
+            points.push(points[0] + x, points[1] + y);
+        }
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(points), gl.STATIC_DRAW);
+        const COMPONENTS_PER_AXIS = 2;
+        gl.vertexAttribPointer(way_position_location, COMPONENTS_PER_AXIS, gl.FLOAT, false, 0, 0);
+        gl.uniform2fv(way_offset_location, center);
+        gl.uniform2fv(way_scale_location, [scale, scale]);
+        gl.uniform4fv(way_color_location, [1, 0, 0, 1]);
+        gl.drawArrays(gl.TRIANGLE_FAN, 0, points.length / 2);
+        gl.deleteBuffer(vbo);
     };
     // Drawing Loop
     const loop = (timestamp) => {
@@ -316,6 +350,9 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         drawWays();
         // drawNodes()
         drawClipAxis();
+        if (mousePosition) {
+            drawMouseCircle(mousePosition[0], mousePosition[1], 0.01);
+        }
         scale += (targetScale - scale) * 10 * dt;
         window.requestAnimationFrame(loop);
     };
