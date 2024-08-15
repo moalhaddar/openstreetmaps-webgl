@@ -5,17 +5,21 @@ type OSMNode = {
 }
 
 type State = {
+    // Contexts
+    canvas: HTMLCanvasElement,
     gl: WebGL2RenderingContext,
+
+    // Shader
     program: WebGLProgram,
     position_location: number,
     offset_location: WebGLUniformLocation,
     scale_location: WebGLUniformLocation,
     color_location: WebGLUniformLocation,
-    
+
     // transformations
     axisOffset: [number, number]
     scale: number
-    
+
     // dragging
     anchor: [number, number] | undefined
 
@@ -35,7 +39,7 @@ const state: State = {} as any;
 
 async function parseOSMXML() {
     const osmXml = await fetch('./data.osm').then(data => data.text())
-    const parser = new DOMParser();    
+    const parser = new DOMParser();
     return parser.parseFromString(osmXml, 'text/xml');
 }
 
@@ -75,7 +79,7 @@ function getWaysFromXml(xml: Document): OSMWay[] {
          * "It is possible that faulty ways with zero or one node exist"
          * From: https://wiki.openstreetmap.org/wiki/Way
          */
-        if (nodes.length <= 1) continue; 
+        if (nodes.length <= 1) continue;
 
         const way: OSMWay = {
             node_ids: [],
@@ -132,7 +136,7 @@ function generateMetadata(nodes: OSMNode[]): Metadata {
 }
 
 function normalizeNodes(metadata: Metadata, nodes: OSMNode[]): number[] {
-    const {maxLat, minLat, maxLon, minLon} = metadata;
+    const { maxLat, minLat, maxLon, minLon } = metadata;
 
     const latRange = maxLat - minLat;
     const lonRange = maxLon - minLon;
@@ -195,9 +199,16 @@ function loadSources(vertexId: string, fragmentId: string): [string, string] {
     return [vertexSource, fragmentSource];
 }
 
-function initGl(): WebGL2RenderingContext {
+function initCanvas(): HTMLCanvasElement {
     const canvas = document.getElementById("canvas") as HTMLCanvasElement;
-    const gl = canvas.getContext('webgl2');
+    canvas.width = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
+
+    return canvas;
+}
+
+function initGl(): WebGL2RenderingContext {
+    const gl = state.canvas.getContext('webgl2');
     if (!gl) {
         throw new Error("Cannot create webgl context");
     }
@@ -205,19 +216,35 @@ function initGl(): WebGL2RenderingContext {
     return gl;
 }
 
-function getMouseCanvasPosition(canvas: HTMLCanvasElement, e: MouseEvent): {x: number, y: number} {
-    const rect = canvas.getBoundingClientRect();
+function initShader(vertexShaderIdL: string, fragmentShaderId: string) {
+    const [vertex_source, fragment_source] = loadSources(vertexShaderIdL, fragmentShaderId);
+    const vertex_shader = createShader('vertex', vertex_source);
+    const fragment_shader = createShader('fragment', fragment_source);
+
+    state.program = createProgram(vertex_shader, fragment_shader)
+    state.gl.useProgram(state.program);
+
+    state.position_location = state.gl.getAttribLocation(state.program, 'a_position');
+    state.gl.enableVertexAttribArray(state.position_location);
+
+    state.offset_location = state.gl.getUniformLocation(state.program, 'u_offset') as WebGLUniformLocation;
+    state.scale_location = state.gl.getUniformLocation(state.program, 'u_scale') as WebGLUniformLocation;
+    state.color_location = state.gl.getUniformLocation(state.program, 'u_color') as WebGLUniformLocation;
+}
+
+function getMouseCanvasPosition(e: MouseEvent): { x: number, y: number } {
+    const rect = state.canvas.getBoundingClientRect();
     return {
         x: e.clientX - rect.left,
         y: e.clientY - rect.top
     }
 }
 
-function getMouseClipPosition(canvas: HTMLCanvasElement, e: MouseEvent): {x: number, y: number} {
-    const {x, y} = getMouseCanvasPosition(canvas, e);
+function getMouseClipPosition(e: MouseEvent): { x: number, y: number } {
+    const { x, y } = getMouseCanvasPosition(e);
     // [0..1]
-    let normalizedCanvasX = x / canvas.width;
-    let normalizedCanvasY = y / canvas.height;
+    let normalizedCanvasX = x / state.canvas.width;
+    let normalizedCanvasY = y / state.canvas.height;
 
     // [0, 2]
     normalizedCanvasX *= 2;
@@ -235,8 +262,8 @@ function getMouseClipPosition(canvas: HTMLCanvasElement, e: MouseEvent): {x: num
 
 const getMouseWorldPosition = (mouseClipPosition: [number, number], scale: number, offset: [number, number]) => {
     return [
-        ((mouseClipPosition[0] / scale) - offset[0]), 
-        ((mouseClipPosition[1] / scale) - offset[1]), 
+        ((mouseClipPosition[0] / scale) - offset[0]),
+        ((mouseClipPosition[1] / scale) - offset[1]),
     ]
 }
 
@@ -276,7 +303,7 @@ function drawLine(x1: number, y1: number, x2: number, y2: number) {
     state.gl.drawArrays(state.gl.LINES, 0, 2);
 }
 
-function drawCircle (cx: number, cy: number, r: number) {
+function drawCircle(cx: number, cy: number, r: number) {
     const vbo = state.gl.createBuffer();
     state.gl.bindBuffer(state.gl.ARRAY_BUFFER, vbo);
     const RESOLUTION = 200;
@@ -303,30 +330,16 @@ window.addEventListener('load', async () => {
     const xmlDoc = await parseOSMXML();
     const nodes = getNodesFromXml(xmlDoc);
     const ways = getWaysFromXml(xmlDoc);
-    
+
     const metadata = generateMetadata(nodes);
     const nodeIdIdxMap = makeNodesIdIdxMap(nodes);
     const nodesLonLatArray = normalizeNodes(metadata, nodes)
     const buildingNodesIdxs = makeWayNodesIdxsFor("building", ways, nodeIdIdxMap);
     const highwayNodesIdxs = makeWayNodesIdxsFor("highway", ways, nodeIdIdxMap);
 
+    state.canvas = initCanvas();
     state.gl = initGl();
-    
-    const canvas = document.getElementById("canvas") as HTMLCanvasElement;
-    canvas.width = canvas.clientWidth;
-    canvas.height = canvas.clientHeight;
-
-    // Setup shader.
-    const [vertex_source, fragment_source] = loadSources('#vertex-shader', '#fragment-shader');
-    const vertex_shader = createShader('vertex', vertex_source);
-    const fragment_shader = createShader('fragment', fragment_source);
-    state.program = createProgram(vertex_shader, fragment_shader)
-    state.gl.useProgram(state.program);
-    state.position_location = state.gl.getAttribLocation(state.program, 'a_position');
-    state.gl.enableVertexAttribArray(state.position_location);
-    state.offset_location = state.gl.getUniformLocation(state.program, 'u_offset') as WebGLUniformLocation;
-    state.scale_location = state.gl.getUniformLocation(state.program, 'u_scale') as WebGLUniformLocation;
-    state.color_location = state.gl.getUniformLocation(state.program, 'u_color') as WebGLUniformLocation;
+    initShader('#vertex-shader', '#fragment-shader');
 
     const nodes_buffer = state.gl.createBuffer()
     state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
@@ -350,19 +363,19 @@ window.addEventListener('load', async () => {
     state.mouseWorldPosition = undefined;
 
     // Events
-    canvas.addEventListener('mousedown', (e) => {
-        const {x, y} = getMouseClipPosition(canvas, e);
+    state.canvas.addEventListener('mousedown', (e) => {
+        const { x, y } = getMouseClipPosition(e);
         state.anchor = [x, y]
     })
 
-    canvas.addEventListener('mouseup', () => {
+    state.canvas.addEventListener('mouseup', () => {
         if (state.anchor) {
             state.anchor = undefined;
         }
     })
 
-    canvas.addEventListener('mousemove', (e) => {
-        const {x, y} = getMouseClipPosition(canvas, e);
+    state.canvas.addEventListener('mousemove', (e) => {
+        const { x, y } = getMouseClipPosition(e);
         state.mouseClipPosition = [x, y];
         if (state.anchor) {
             const dx = state.mouseClipPosition[0] - state.anchor[0];
@@ -371,12 +384,12 @@ window.addEventListener('load', async () => {
                 state.axisOffset[0] + (dx / state.scale),
                 state.axisOffset[1] + (dy / state.scale)
             ]
-            
+
             state.anchor = [x, y];
-        }  
+        }
     })
 
-    canvas.addEventListener('wheel', (e) => {
+    state.canvas.addEventListener('wheel', (e) => {
         if (e.deltaY < 0) {
             state.targetScale++;
         } else if (state.targetScale - 1 > 0) {
@@ -392,12 +405,12 @@ window.addEventListener('load', async () => {
         state.gl.uniform2fv(state.scale_location, [state.scale, state.scale]);
         state.gl.uniform4fv(state.color_location, [0, 1, 0, 1]);
         state.gl.drawArrays(
-            state.gl.POINTS, 
-            0, 
+            state.gl.POINTS,
+            0,
             nodesLonLatArray.length / COMPONENTS_PER_NODE // How many points in the vbo
         );
     }
-    
+
     const drawWays = () => {
         state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
         const COMPONENTS_PER_WAY = 2;
@@ -422,7 +435,7 @@ window.addEventListener('load', async () => {
 
     // Drawing Loop
     const loop = (timestamp: number) => {
-        const dt = (timestamp -  state.previous_render_timestamp) / 1000;
+        const dt = (timestamp - state.previous_render_timestamp) / 1000;
         state.previous_render_timestamp = timestamp;
         // red, green, blue, alpha
         state.gl.clearColor(0, 0, 0, 1);
@@ -436,8 +449,8 @@ window.addEventListener('load', async () => {
             const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.axisOffset);
             drawCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.005 / state.scale);
         }
-    
-        
+
+
         state.scale += (state.targetScale - state.scale) * 10 * dt;
         window.requestAnimationFrame(loop);
     }
@@ -446,5 +459,5 @@ window.addEventListener('load', async () => {
 
         window.requestAnimationFrame(loop);
     });
-    
+
 })

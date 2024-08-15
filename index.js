@@ -137,26 +137,43 @@ function loadSources(vertexId, fragmentId) {
     }
     return [vertexSource, fragmentSource];
 }
-function initGl() {
+function initCanvas() {
     const canvas = document.getElementById("canvas");
-    const gl = canvas.getContext('webgl2');
+    canvas.width = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
+    return canvas;
+}
+function initGl() {
+    const gl = state.canvas.getContext('webgl2');
     if (!gl) {
         throw new Error("Cannot create webgl context");
     }
     return gl;
 }
-function getMouseCanvasPosition(canvas, e) {
-    const rect = canvas.getBoundingClientRect();
+function initShader(vertexShaderIdL, fragmentShaderId) {
+    const [vertex_source, fragment_source] = loadSources(vertexShaderIdL, fragmentShaderId);
+    const vertex_shader = createShader('vertex', vertex_source);
+    const fragment_shader = createShader('fragment', fragment_source);
+    state.program = createProgram(vertex_shader, fragment_shader);
+    state.gl.useProgram(state.program);
+    state.position_location = state.gl.getAttribLocation(state.program, 'a_position');
+    state.gl.enableVertexAttribArray(state.position_location);
+    state.offset_location = state.gl.getUniformLocation(state.program, 'u_offset');
+    state.scale_location = state.gl.getUniformLocation(state.program, 'u_scale');
+    state.color_location = state.gl.getUniformLocation(state.program, 'u_color');
+}
+function getMouseCanvasPosition(e) {
+    const rect = state.canvas.getBoundingClientRect();
     return {
         x: e.clientX - rect.left,
         y: e.clientY - rect.top
     };
 }
-function getMouseClipPosition(canvas, e) {
-    const { x, y } = getMouseCanvasPosition(canvas, e);
+function getMouseClipPosition(e) {
+    const { x, y } = getMouseCanvasPosition(e);
     // [0..1]
-    let normalizedCanvasX = x / canvas.width;
-    let normalizedCanvasY = y / canvas.height;
+    let normalizedCanvasX = x / state.canvas.width;
+    let normalizedCanvasY = y / state.canvas.height;
     // [0, 2]
     normalizedCanvasX *= 2;
     normalizedCanvasY *= 2;
@@ -236,21 +253,9 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
     const nodesLonLatArray = normalizeNodes(metadata, nodes);
     const buildingNodesIdxs = makeWayNodesIdxsFor("building", ways, nodeIdIdxMap);
     const highwayNodesIdxs = makeWayNodesIdxsFor("highway", ways, nodeIdIdxMap);
+    state.canvas = initCanvas();
     state.gl = initGl();
-    const canvas = document.getElementById("canvas");
-    canvas.width = canvas.clientWidth;
-    canvas.height = canvas.clientHeight;
-    // Setup shader.
-    const [vertex_source, fragment_source] = loadSources('#vertex-shader', '#fragment-shader');
-    const vertex_shader = createShader('vertex', vertex_source);
-    const fragment_shader = createShader('fragment', fragment_source);
-    state.program = createProgram(vertex_shader, fragment_shader);
-    state.gl.useProgram(state.program);
-    state.position_location = state.gl.getAttribLocation(state.program, 'a_position');
-    state.gl.enableVertexAttribArray(state.position_location);
-    state.offset_location = state.gl.getUniformLocation(state.program, 'u_offset');
-    state.scale_location = state.gl.getUniformLocation(state.program, 'u_scale');
-    state.color_location = state.gl.getUniformLocation(state.program, 'u_color');
+    initShader('#vertex-shader', '#fragment-shader');
     const nodes_buffer = state.gl.createBuffer();
     state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
     state.gl.bufferData(state.gl.ARRAY_BUFFER, new Float32Array(nodesLonLatArray), state.gl.STATIC_DRAW);
@@ -269,17 +274,17 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
     state.mouseClipPosition = undefined;
     state.mouseWorldPosition = undefined;
     // Events
-    canvas.addEventListener('mousedown', (e) => {
-        const { x, y } = getMouseClipPosition(canvas, e);
+    state.canvas.addEventListener('mousedown', (e) => {
+        const { x, y } = getMouseClipPosition(e);
         state.anchor = [x, y];
     });
-    canvas.addEventListener('mouseup', () => {
+    state.canvas.addEventListener('mouseup', () => {
         if (state.anchor) {
             state.anchor = undefined;
         }
     });
-    canvas.addEventListener('mousemove', (e) => {
-        const { x, y } = getMouseClipPosition(canvas, e);
+    state.canvas.addEventListener('mousemove', (e) => {
+        const { x, y } = getMouseClipPosition(e);
         state.mouseClipPosition = [x, y];
         if (state.anchor) {
             const dx = state.mouseClipPosition[0] - state.anchor[0];
@@ -291,7 +296,7 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
             state.anchor = [x, y];
         }
     });
-    canvas.addEventListener('wheel', (e) => {
+    state.canvas.addEventListener('wheel', (e) => {
         if (e.deltaY < 0) {
             state.targetScale++;
         }
