@@ -174,6 +174,12 @@ function getMouseClipPosition(canvas, e) {
         y: normalizedCanvasY * -1 // We invert the y axis
     };
 }
+const getMouseWorldPosition = (mouseClipPosition, scale, offset) => {
+    return [
+        ((mouseClipPosition[0] / scale) - offset[0]),
+        ((mouseClipPosition[1] / scale) - offset[1]),
+    ];
+};
 function makeNodesIdIdxMap(nodes) {
     const map = new Map();
     for (let i = 0; i < nodes.length; i++) {
@@ -240,8 +246,7 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, highway_nodes_index_buffer);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(highwayNodesIdxs), gl.STATIC_DRAW);
     // State
-    // let axisOffset = [-0.5, -0.5];
-    let axisOffset = [0, 0];
+    let axisOffset = [-0.5, -0.5];
     let anchor = undefined;
     let scale = 1;
     let targetScale = 1;
@@ -258,14 +263,6 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
             anchor = undefined;
         }
     });
-    const getMouseWorldPosition = () => {
-        if (mouseClipPosition) {
-            return [
-                ((mouseClipPosition[0] / scale) - axisOffset[0]),
-                ((mouseClipPosition[1] / scale) - axisOffset[1]),
-            ];
-        }
-    };
     canvas.addEventListener('mousemove', (e) => {
         const { x, y } = getMouseClipPosition(canvas, e);
         mouseClipPosition = [x, y];
@@ -360,9 +357,9 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         drawWays();
         // drawNodes()
         drawClipAxis();
-        const mouseWorldPosition = getMouseWorldPosition();
-        if (mouseWorldPosition) {
-            drawMouseCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.01);
+        if (mouseClipPosition) {
+            const mouseWorldPosition = getMouseWorldPosition(mouseClipPosition, scale, axisOffset);
+            drawMouseCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.005 / scale);
         }
         scale += (targetScale - scale) * 10 * dt;
         window.requestAnimationFrame(loop);

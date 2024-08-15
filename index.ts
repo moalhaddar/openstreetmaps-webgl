@@ -208,6 +208,13 @@ function getMouseClipPosition(canvas: HTMLCanvasElement, e: MouseEvent): {x: num
     }
 }
 
+const getMouseWorldPosition = (mouseClipPosition: [number, number], scale: number, offset: [number, number]) => {
+    return [
+        ((mouseClipPosition[0] / scale) - offset[0]), 
+        ((mouseClipPosition[1] / scale) - offset[1]), 
+    ]
+}
+
 function makeNodesIdIdxMap(nodes: OSMNode[]): Map<number, number> {
     const map = new Map<number, number>();
     for (let i = 0; i < nodes.length; i++) {
@@ -282,8 +289,7 @@ window.addEventListener('load', async () => {
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(highwayNodesIdxs), gl.STATIC_DRAW);
 
     // State
-    // let axisOffset = [-0.5, -0.5];
-    let axisOffset = [0, 0];
+    let axisOffset: [number, number]= [-0.5, -0.5];
     let anchor: [number, number] | undefined = undefined;
     let scale = 1;
     let targetScale = 1;
@@ -302,15 +308,6 @@ window.addEventListener('load', async () => {
             anchor = undefined;
         }
     })
-
-    const getMouseWorldPosition = () => {
-        if (mouseClipPosition) {
-            return [
-                ((mouseClipPosition[0] / scale) - axisOffset[0]), 
-                ((mouseClipPosition[1] / scale) - axisOffset[1]), 
-            ]
-        }
-    }
 
     canvas.addEventListener('mousemove', (e) => {
         const {x, y} = getMouseClipPosition(canvas, e);
@@ -421,9 +418,9 @@ window.addEventListener('load', async () => {
         drawWays();
         // drawNodes()
         drawClipAxis();
-        const mouseWorldPosition = getMouseWorldPosition();
-        if (mouseWorldPosition) {
-            drawMouseCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.01);
+        if (mouseClipPosition) {
+            const mouseWorldPosition = getMouseWorldPosition(mouseClipPosition, scale, axisOffset);
+            drawMouseCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.005 / scale);
         }
     
         
