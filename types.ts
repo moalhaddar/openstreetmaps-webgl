@@ -50,6 +50,8 @@ export type State = {
     // Path finding
     startNode: OSMNode | undefined;
     endNode: OSMNode | undefined;
+    graph: Record<string, Record<string, number>>
+    path: number[]
 
     metadata: Metadata;
 

@@ -5,7 +5,7 @@ import { Metadata, MouseButton, OSMNode, State } from "./types.js";
 const state: State = {} as any;
 
 async function parseOSMXML() {
-    const osmXml = await fetch('./data.osm').then(data => data.text())
+    const osmXml = await fetch('./area.osm').then(data => data.text())
     const parser = new DOMParser();
     return parser.parseFromString(osmXml, 'text/xml');
 }
@@ -305,6 +305,111 @@ function drawCircle(cx: number, cy: number, r: number, color: [number, number, n
     state.gl.deleteBuffer(vbo);
 }
 
+function findPath(previous: Record<string, string | undefined>, nodeIdIdxMap: Map<number, number>) {
+    if (state.endNode === undefined) return;
+    const path = [];
+    let u: string | undefined = String(nodeIdIdxMap.get(state.endNode.id));
+    if (u === undefined) throw new Error(`Cannot find target node in the reverse lookup ${1}`);
+    let i = 0;
+    while (u !== undefined) {
+        path.unshift(u);
+        u = previous[u];
+        i++
+    }
+
+    console.log(i);
+
+    return path;
+}
+
+function dijkstra(nodeIdIdxMap: Map<number, number>) {
+    if (!state.startNode) return;
+    let distances: Record<string, number> = {};
+    let previous: Record<string, string | undefined> = {};
+    const visited = new Set();
+    let nodes = Object.keys(state.graph);
+    for (let node of nodes) {
+        distances[node] = Infinity;
+        previous[node] = undefined;
+    }
+
+    const startNodeIndex = nodeIdIdxMap.get(state.startNode.id);
+    if (!startNodeIndex) throw new Error("Start node not found in reverse lookup");
+    distances[startNodeIndex] = 0;
+
+    while (nodes.length > 0) {
+        nodes.sort((a, b) => distances[a] - distances[b]);
+        const closestNodeIndex = nodes.shift() as string;
+        if (distances[closestNodeIndex] === Infinity) break;
+        visited.add(closestNodeIndex);
+
+        for (let neighbor in state.graph[closestNodeIndex]) {
+            // If the neighbor hasn't been visited yet
+            if (!visited.has(neighbor)) {
+                // Calculate tentative distance to the neighboring node
+                let newDistance = distances[closestNodeIndex] + state.graph[closestNodeIndex][neighbor];
+                
+                // If the newly calculated distance is shorter than the previously known distance to this neighbor
+                if (newDistance < distances[neighbor]) {
+                    // Update the shortest distance to this neighbor
+                    distances[neighbor] = newDistance;
+                    previous[neighbor] = closestNodeIndex;
+                }
+            }
+        }
+    }
+
+    return {distances, previous};
+}
+
+/**
+ * Ref: http://www.movable-type.co.uk/scripts/latlong.html
+ * @param lon1 
+ * @param lat1 
+ * @param lon2 
+ * @param lat2 
+ */
+function haversine(lon1: number, lat1: number, lon2: number, lat2: number) {
+    const R = 6371e3; // metres
+    const φ1 = lat1 * Math.PI/180; // φ, λ in radians
+    const φ2 = lat2 * Math.PI/180;
+    const Δφ = (lat2-lat1) * Math.PI/180;
+    const Δλ = (lon2-lon1) * Math.PI/180;
+    
+    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+              Math.cos(φ1) * Math.cos(φ2) *
+              Math.sin(Δλ/2) * Math.sin(Δλ/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    
+    const d = R * c; // in metres
+
+    return d;
+}
+
+function buildGraph(nodes: (OSMNode | undefined)[], nodeIdIdxMap: Map<number, number>) {
+    const graph: Record<string, Record<string, number>> = {};
+    for (let i = 0; i < nodes.length; i++) {
+        const start = nodes[i];
+        const end = nodes[i + 1]
+        if (start && end) {
+            const startIndex = nodeIdIdxMap.get(start.id);
+            const endIndex = nodeIdIdxMap.get(end.id);
+            if (startIndex === undefined || endIndex === undefined) {
+                throw new Error("Cannot find index for node ids");   
+            }
+            const distance = haversine(start.lon, start.lat, end.lon, end.lat);
+            if (graph[startIndex] === undefined) {
+                graph[startIndex] = {};
+            }
+            graph[startIndex][endIndex] = distance;
+        } else {
+            continue;
+        }
+    }
+
+    state.graph = graph;
+}
+
 window.addEventListener('load', async () => {
     // Initial state
     state.translationOffset = [-0.5, -0.5];
@@ -318,6 +423,8 @@ window.addEventListener('load', async () => {
     state.activeBucket = [];
     state.startNode = undefined;
     state.timeouts = [];
+    state.graph = {};
+    state.path = [];
 
     const xmlDoc = await parseOSMXML();
     const nodes = getNodesFromXml(xmlDoc);
@@ -330,6 +437,7 @@ window.addEventListener('load', async () => {
     const nodesLonLatArray = normalizeNodes(nodes)
     const buildingNodesIdxs = getNodeIdxs(buildingNodes, nodeIdIdxMap);
     const highwayNodesIdxs = getNodeIdxs(highwayNodes, nodeIdIdxMap);
+    buildGraph(highwayNodes, nodeIdIdxMap)
     state.bucketMap = new BucketMap(state.metadata, nodeIdIdxMap);
     state.bucketMap.populate(highwayNodes.filter(x => !!x));
 
@@ -349,10 +457,13 @@ window.addEventListener('load', async () => {
     state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, highnodes_index_buffer);
     state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(highwayNodesIdxs), state.gl.STATIC_DRAW);
 
+    const path_buffer = state.gl.createBuffer();
+    state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, path_buffer);
+    state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(state.path), state.gl.STATIC_DRAW);
+
 
     // Events
     state.canvas.addEventListener('mousedown', (e) => {
-        console.log(e);
         const { x, y } = getMouseClipPosition(e);
         state.anchor = [x, y]
         if (state.activeBucket.length === 1) {
@@ -415,6 +526,16 @@ window.addEventListener('load', async () => {
         if (e.key === 'Control') {
             state.isCtrlPressed = true;
         }
+
+        if (e.code === 'Space') {
+            const result = dijkstra(nodeIdIdxMap)
+            if (result) {
+                const path = findPath(result.previous, nodeIdIdxMap);
+                if (path) {
+                    state.path = path.map(x => Number(x));
+                }
+            } 
+        }
     })
 
     window.addEventListener("keyup", (e) => {
@@ -461,6 +582,12 @@ window.addEventListener('load', async () => {
         state.gl.uniform4fv(state.u_color_location, [0, 0.8, 0.99, 1]);
         state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, highnodes_index_buffer);
         state.gl.drawElements(state.gl.LINE_STRIP, highwayNodesIdxs.length, state.gl.UNSIGNED_INT, 0);
+
+
+        state.gl.uniform4fv(state.u_color_location, [1, 0, 0, 1]);
+        state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, path_buffer);
+        state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(state.path), state.gl.STATIC_DRAW);
+        state.gl.drawElements(state.gl.LINE_STRIP, state.path.length, state.gl.UNSIGNED_INT, 0);
     }
 
     const drawClipAxis = () => {
