@@ -319,7 +319,7 @@ window.addEventListener('load', async () => {
         gl.drawArrays(
             gl.POINTS, 
             0, 
-            nodesFloat32LonLatArray.length / COMPONENTS_PER_NODE // How many points
+            nodesFloat32LonLatArray.length / COMPONENTS_PER_NODE // How many points in the vbo
         );
     }
     
@@ -334,11 +334,26 @@ window.addEventListener('load', async () => {
 
         gl.uniform4fv(way_color_location, [0.5, 0.35, 0.61, 1]);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, building_nodes_index_buffer);
+        // Count is for the elements in the ebo, not vbo.
         gl.drawElements(gl.TRIANGLE_STRIP, buildingNodesIdxs.length, gl.UNSIGNED_INT, 0);
 
         gl.uniform4fv(way_color_location, [0, 0.8, 0.99, 1]);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, highway_nodes_index_buffer);
         gl.drawElements(gl.LINE_STRIP, highwayNodesIdxs.length, gl.UNSIGNED_INT, 0);
+    }
+
+    const drawClipAxis = () => {
+        gl.useProgram(way_program);
+        gl.enableVertexAttribArray(way_position_location);
+        const vbo = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([1, 0, -1, 0, 0, -1, 0, 1]), gl.STATIC_DRAW);
+        const COMPONENTS_PER_AXIS = 2;
+        gl.vertexAttribPointer(way_position_location, COMPONENTS_PER_AXIS, gl.FLOAT, false, 0, 0);
+        gl.uniform2fv(way_offset_location, center);
+        gl.uniform2fv(way_scale_location, [scale, scale]);
+        gl.uniform4fv(way_color_location, [1, 0, 0, 1]);
+        gl.drawArrays(gl.LINES, 0, 4);
     }
 
     // Drawing Loop
@@ -352,6 +367,7 @@ window.addEventListener('load', async () => {
 
         drawWays();
         // drawNodes()
+        drawClipAxis();
     
         
         scale += (targetScale - scale) * 10 * dt;
