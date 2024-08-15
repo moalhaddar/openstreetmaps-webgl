@@ -240,12 +240,14 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, highway_nodes_index_buffer);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(highwayNodesIdxs), gl.STATIC_DRAW);
     // State
-    let center = [-0.5, -0.5];
+    // let axisOffset = [-0.5, -0.5];
+    let axisOffset = [0, 0];
     let anchor = undefined;
     let scale = 1;
     let targetScale = 1;
     let previous_render_timestamp = 0;
-    let mousePosition = undefined;
+    let mouseClipPosition = undefined;
+    let mouseWorldPosition = undefined;
     // Events
     canvas.addEventListener('mousedown', (e) => {
         const { x, y } = getMouseClipPosition(canvas, e);
@@ -256,15 +258,23 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
             anchor = undefined;
         }
     });
+    const getMouseWorldPosition = () => {
+        if (mouseClipPosition) {
+            return [
+                ((mouseClipPosition[0] / scale) - axisOffset[0]),
+                ((mouseClipPosition[1] / scale) - axisOffset[1]),
+            ];
+        }
+    };
     canvas.addEventListener('mousemove', (e) => {
         const { x, y } = getMouseClipPosition(canvas, e);
-        mousePosition = [x, y];
+        mouseClipPosition = [x, y];
         if (anchor) {
-            const dx = mousePosition[0] - anchor[0];
-            const dy = mousePosition[1] - anchor[1];
-            center = [
-                center[0] + (dx / scale) * 2, // TODO; figure out why 2 works out.
-                center[1] + (dy / scale) * 2
+            const dx = mouseClipPosition[0] - anchor[0];
+            const dy = mouseClipPosition[1] - anchor[1];
+            axisOffset = [
+                axisOffset[0] + (dx / scale),
+                axisOffset[1] + (dy / scale)
             ];
             anchor = [x, y];
         }
@@ -283,7 +293,7 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         gl.bindBuffer(gl.ARRAY_BUFFER, node_position_buffer);
         const COMPONENTS_PER_NODE = 2;
         gl.vertexAttribPointer(node_position_location, COMPONENTS_PER_NODE, gl.FLOAT, false, 0, 0);
-        gl.uniform2fv(node_offset_location, center);
+        gl.uniform2fv(node_offset_location, axisOffset);
         gl.uniform2fv(node_scale_location, [scale, scale]);
         gl.drawArrays(gl.POINTS, 0, nodesFloat32LonLatArray.length / COMPONENTS_PER_NODE // How many points in the vbo
         );
@@ -294,7 +304,7 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         gl.bindBuffer(gl.ARRAY_BUFFER, way_position_buffer);
         const COMPONENTS_PER_WAY = 2;
         gl.vertexAttribPointer(way_position_location, COMPONENTS_PER_WAY, gl.FLOAT, false, 0, 0);
-        gl.uniform2fv(way_offset_location, center);
+        gl.uniform2fv(way_offset_location, axisOffset);
         gl.uniform2fv(way_scale_location, [scale, scale]);
         gl.uniform4fv(way_color_location, [0.5, 0.35, 0.61, 1]);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, building_nodes_index_buffer);
@@ -312,7 +322,7 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([1, 0, -1, 0, 0, -1, 0, 1]), gl.STATIC_DRAW);
         const COMPONENTS_PER_AXIS = 2;
         gl.vertexAttribPointer(way_position_location, COMPONENTS_PER_AXIS, gl.FLOAT, false, 0, 0);
-        gl.uniform2fv(way_offset_location, center);
+        gl.uniform2fv(way_offset_location, axisOffset);
         gl.uniform2fv(way_scale_location, [scale, scale]);
         gl.uniform4fv(way_color_location, [1, 0, 0, 1]);
         gl.drawArrays(gl.LINES, 0, 4);
@@ -333,7 +343,7 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(points), gl.STATIC_DRAW);
         const COMPONENTS_PER_AXIS = 2;
         gl.vertexAttribPointer(way_position_location, COMPONENTS_PER_AXIS, gl.FLOAT, false, 0, 0);
-        gl.uniform2fv(way_offset_location, center);
+        gl.uniform2fv(way_offset_location, axisOffset);
         gl.uniform2fv(way_scale_location, [scale, scale]);
         gl.uniform4fv(way_color_location, [1, 0, 0, 1]);
         gl.drawArrays(gl.TRIANGLE_FAN, 0, points.length / 2);
@@ -350,8 +360,9 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         drawWays();
         // drawNodes()
         drawClipAxis();
-        if (mousePosition) {
-            drawMouseCircle(mousePosition[0], mousePosition[1], 0.01);
+        const mouseWorldPosition = getMouseWorldPosition();
+        if (mouseWorldPosition) {
+            drawMouseCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.01);
         }
         scale += (targetScale - scale) * 10 * dt;
         window.requestAnimationFrame(loop);
