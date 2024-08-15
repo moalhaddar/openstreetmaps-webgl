@@ -233,17 +233,33 @@ function makeNodesIdIdxMap(nodes: OSMNode[]): Map<number, number> {
     return map
 }
 
-function makeWayNodesIdxsFor(type: "highway" | "building", ways: OSMWay[], nodeIdIdxMap: Map<number, number>): number[] {
-    const wayNodesIdxs: number[] = [];
+function getNodesFromWayWithTag(type: "highway" | "building", ways: OSMWay[], nodes: OSMNode[], nodeIdIdxMap: Map<number, number>): Array<OSMNode | undefined> {
+    const filteredNodes: Array<OSMNode | undefined> = [];
     for (let i = 0; i < ways.length; i++) {
         if (!ways[i].tags.get(type)) continue;
         for (let j = 0; j < ways[i].node_ids.length; j++) {
             const nodeId = ways[i].node_ids[j];
             const idx = nodeIdIdxMap.get(nodeId);
             if (idx === undefined) throw new Error(`Invalid node id ${nodeId} referenced in a way ${i}, but not found in root data`);
-            wayNodesIdxs.push(idx);
+            filteredNodes.push(nodes[idx]);
         }
-        wayNodesIdxs.push(0xFFFFFFFF);
+        filteredNodes.push(undefined);
+    }
+    return filteredNodes;
+}
+
+function getNodeIdxs(nodes: Array<OSMNode | undefined>, nodeIdIdxMap: Map<number, number>) {
+    const wayNodesIdxs: number[] = [];
+    for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i];
+        if (node === undefined) {
+            wayNodesIdxs.push(0xFFFFFFFF);
+            continue;
+        }
+        const nodeId = node.id;
+        const idx = nodeIdIdxMap.get(nodeId);
+        if (idx === undefined) throw new Error(`Invalid node id ${nodeId} referenced in a way ${i}, but not found in root data`);
+        wayNodesIdxs.push(idx);
     }
     return wayNodesIdxs;
 }
@@ -295,13 +311,15 @@ window.addEventListener('load', async () => {
     const nodes = getNodesFromXml(xmlDoc);
     const ways = getWaysFromXml(xmlDoc);
     const metadata = generateMetadata(nodes);
-
     const nodeIdIdxMap = makeNodesIdIdxMap(nodes);
+
+    const highwayNodes = getNodesFromWayWithTag("highway", ways, nodes, nodeIdIdxMap);
+    const buildingNodes = getNodesFromWayWithTag("building", ways, nodes, nodeIdIdxMap);
     const nodesLonLatArray = normalizeNodes(metadata, nodes)
-    const buildingNodesIdxs = makeWayNodesIdxsFor("building", ways, nodeIdIdxMap);
-    const highwayNodesIdxs = makeWayNodesIdxsFor("highway", ways, nodeIdIdxMap);
+    const buildingNodesIdxs = getNodeIdxs(buildingNodes, nodeIdIdxMap);
+    const highwayNodesIdxs = getNodeIdxs(highwayNodes, nodeIdIdxMap);
     state.bucketMap = new BucketMap(metadata, nodeIdIdxMap);
-    state.bucketMap.populate(nodes);
+    state.bucketMap.populate(highwayNodes.filter(x => !!x));
 
     state.canvas = initCanvas();
     state.gl = initGl();
