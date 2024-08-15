@@ -89,18 +89,11 @@ function normalizeNodes(metadata, nodes) {
     const { maxLat, minLat, maxLon, minLon } = metadata;
     const latRange = maxLat - minLat;
     const lonRange = maxLon - minLon;
-    return nodes.map(node => ({
-        id: node.id,
-        lat: (node.lat - minLat) / latRange,
-        lon: ((node.lon - minLon) / lonRange)
-    }));
-}
-function nodesToFloat32LonLatArray(nodes) {
-    const flat = [];
+    const data = [];
     for (let i = 0; i < nodes.length; i++) {
-        flat.push(nodes[i].lon, nodes[i].lat);
+        data.push((nodes[i].lon - minLon) / lonRange, (nodes[i].lat - minLat) / latRange);
     }
-    return new Float32Array(flat);
+    return data;
 }
 function createShader(gl, type, source) {
     const shader = gl.createShader(type === 'vertex' ? gl.VERTEX_SHADER : gl.FRAGMENT_SHADER);
@@ -208,42 +201,31 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
     const nodes = getNodesFromXml(xmlDoc);
     const ways = getWaysFromXml(xmlDoc);
     const metadata = generateMetadata(nodes);
-    const nodesFloat32LonLatArray = nodesToFloat32LonLatArray(normalizeNodes(metadata, nodes));
     const nodeIdIdxMap = makeNodesIdIdxMap(nodes);
+    const nodesLonLatArray = normalizeNodes(metadata, nodes);
     const buildingNodesIdxs = makeWayNodesIdxsFor("building", ways, nodeIdIdxMap);
     const highwayNodesIdxs = makeWayNodesIdxsFor("highway", ways, nodeIdIdxMap);
     const gl = initGl();
     const canvas = document.getElementById("canvas");
     canvas.width = canvas.clientWidth;
     canvas.height = canvas.clientHeight;
-    // Setup node shader.
-    const [node_vertex_source, node_fragment_source] = loadSources('#node-vertex-shader', '#node-fragment-shader');
-    const node_vertex_shader = createShader(gl, 'vertex', node_vertex_source);
-    const node_fragment_shader = createShader(gl, 'fragment', node_fragment_source);
-    const node_program = createProgram(gl, node_vertex_shader, node_fragment_shader);
-    const node_position_location = gl.getAttribLocation(node_program, 'a_position');
-    const node_offset_location = gl.getUniformLocation(node_program, 'u_offset');
-    const node_scale_location = gl.getUniformLocation(node_program, 'u_scale');
-    const node_position_buffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, node_position_buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, nodesFloat32LonLatArray, gl.STATIC_DRAW);
-    // Setup Ways shader.
-    const [way_vertex_source, way_fragment_source] = loadSources('#way-vertex-shader', '#way-fragment-shader');
-    const way_vertex_shader = createShader(gl, 'vertex', way_vertex_source);
-    const way_fragment_shader = createShader(gl, 'fragment', way_fragment_source);
-    const way_program = createProgram(gl, way_vertex_shader, way_fragment_shader);
-    const way_position_location = gl.getAttribLocation(way_program, 'a_position');
-    const way_offset_location = gl.getUniformLocation(way_program, 'u_offset');
-    const way_scale_location = gl.getUniformLocation(way_program, 'u_scale');
-    const way_color_location = gl.getUniformLocation(way_program, 'u_color');
-    const way_position_buffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, way_position_buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, nodesFloat32LonLatArray, gl.STATIC_DRAW);
+    // Setup shader.
+    const [vertex_source, fragment_source] = loadSources('#vertex-shader', '#fragment-shader');
+    const vertex_shader = createShader(gl, 'vertex', vertex_source);
+    const fragment_shader = createShader(gl, 'fragment', fragment_source);
+    const program = createProgram(gl, vertex_shader, fragment_shader);
+    const position_location = gl.getAttribLocation(program, 'a_position');
+    const offset_location = gl.getUniformLocation(program, 'u_offset');
+    const scale_location = gl.getUniformLocation(program, 'u_scale');
+    const color_location = gl.getUniformLocation(program, 'u_color');
+    const nodes_buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, nodes_buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(nodesLonLatArray), gl.STATIC_DRAW);
     const building_nodes_index_buffer = gl.createBuffer();
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, building_nodes_index_buffer);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(buildingNodesIdxs), gl.STATIC_DRAW);
-    const highway_nodes_index_buffer = gl.createBuffer();
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, highway_nodes_index_buffer);
+    const highnodes_index_buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, highnodes_index_buffer);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(highwayNodesIdxs), gl.STATIC_DRAW);
     // State
     let axisOffset = [-0.5, -0.5];
@@ -285,49 +267,50 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         }
     });
     const drawNodes = () => {
-        gl.useProgram(node_program);
-        gl.enableVertexAttribArray(node_position_location);
-        gl.bindBuffer(gl.ARRAY_BUFFER, node_position_buffer);
+        gl.useProgram(program);
+        gl.enableVertexAttribArray(position_location);
+        gl.bindBuffer(gl.ARRAY_BUFFER, nodes_buffer);
         const COMPONENTS_PER_NODE = 2;
-        gl.vertexAttribPointer(node_position_location, COMPONENTS_PER_NODE, gl.FLOAT, false, 0, 0);
-        gl.uniform2fv(node_offset_location, axisOffset);
-        gl.uniform2fv(node_scale_location, [scale, scale]);
-        gl.drawArrays(gl.POINTS, 0, nodesFloat32LonLatArray.length / COMPONENTS_PER_NODE // How many points in the vbo
+        gl.vertexAttribPointer(position_location, COMPONENTS_PER_NODE, gl.FLOAT, false, 0, 0);
+        gl.uniform2fv(offset_location, axisOffset);
+        gl.uniform2fv(scale_location, [scale, scale]);
+        gl.uniform4fv(color_location, [0, 1, 0, 1]);
+        gl.drawArrays(gl.POINTS, 0, nodesLonLatArray.length / COMPONENTS_PER_NODE // How many points in the vbo
         );
     };
     const drawWays = () => {
-        gl.useProgram(way_program);
-        gl.enableVertexAttribArray(way_position_location);
-        gl.bindBuffer(gl.ARRAY_BUFFER, way_position_buffer);
+        gl.useProgram(program);
+        gl.enableVertexAttribArray(position_location);
+        gl.bindBuffer(gl.ARRAY_BUFFER, nodes_buffer);
         const COMPONENTS_PER_WAY = 2;
-        gl.vertexAttribPointer(way_position_location, COMPONENTS_PER_WAY, gl.FLOAT, false, 0, 0);
-        gl.uniform2fv(way_offset_location, axisOffset);
-        gl.uniform2fv(way_scale_location, [scale, scale]);
-        gl.uniform4fv(way_color_location, [0.5, 0.35, 0.61, 1]);
+        gl.vertexAttribPointer(position_location, COMPONENTS_PER_WAY, gl.FLOAT, false, 0, 0);
+        gl.uniform2fv(offset_location, axisOffset);
+        gl.uniform2fv(scale_location, [scale, scale]);
+        gl.uniform4fv(color_location, [0.5, 0.35, 0.61, 1]);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, building_nodes_index_buffer);
         // Count is for the elements in the ebo, not vbo.
         gl.drawElements(gl.TRIANGLE_STRIP, buildingNodesIdxs.length, gl.UNSIGNED_INT, 0);
-        gl.uniform4fv(way_color_location, [0, 0.8, 0.99, 1]);
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, highway_nodes_index_buffer);
+        gl.uniform4fv(color_location, [0, 0.8, 0.99, 1]);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, highnodes_index_buffer);
         gl.drawElements(gl.LINE_STRIP, highwayNodesIdxs.length, gl.UNSIGNED_INT, 0);
     };
     const drawClipAxis = () => {
-        gl.useProgram(way_program);
-        gl.enableVertexAttribArray(way_position_location);
+        gl.useProgram(program);
+        gl.enableVertexAttribArray(position_location);
         const vbo = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([1, 0, -1, 0, 0, -1, 0, 1]), gl.STATIC_DRAW);
         const COMPONENTS_PER_AXIS = 2;
-        gl.vertexAttribPointer(way_position_location, COMPONENTS_PER_AXIS, gl.FLOAT, false, 0, 0);
-        gl.uniform2fv(way_offset_location, axisOffset);
-        gl.uniform2fv(way_scale_location, [scale, scale]);
-        gl.uniform4fv(way_color_location, [1, 0, 0, 1]);
+        gl.vertexAttribPointer(position_location, COMPONENTS_PER_AXIS, gl.FLOAT, false, 0, 0);
+        gl.uniform2fv(offset_location, axisOffset);
+        gl.uniform2fv(scale_location, [scale, scale]);
+        gl.uniform4fv(color_location, [1, 0, 0, 1]);
         gl.drawArrays(gl.LINES, 0, 4);
         gl.deleteBuffer(vbo);
     };
     const drawMouseCircle = (cx, cy, r) => {
-        gl.useProgram(way_program);
-        gl.enableVertexAttribArray(way_position_location);
+        gl.useProgram(program);
+        gl.enableVertexAttribArray(position_location);
         const vbo = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
         const RESOLUTION = 200;
@@ -339,10 +322,10 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         }
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(points), gl.STATIC_DRAW);
         const COMPONENTS_PER_AXIS = 2;
-        gl.vertexAttribPointer(way_position_location, COMPONENTS_PER_AXIS, gl.FLOAT, false, 0, 0);
-        gl.uniform2fv(way_offset_location, axisOffset);
-        gl.uniform2fv(way_scale_location, [scale, scale]);
-        gl.uniform4fv(way_color_location, [1, 0, 0, 1]);
+        gl.vertexAttribPointer(position_location, COMPONENTS_PER_AXIS, gl.FLOAT, false, 0, 0);
+        gl.uniform2fv(offset_location, axisOffset);
+        gl.uniform2fv(scale_location, [scale, scale]);
+        gl.uniform4fv(color_location, [1, 0, 0, 1]);
         gl.drawArrays(gl.TRIANGLE_FAN, 0, points.length / 2);
         gl.deleteBuffer(vbo);
     };
@@ -355,7 +338,7 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         gl.clear(gl.COLOR_BUFFER_BIT);
         gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
         drawWays();
-        // drawNodes()
+        drawNodes();
         drawClipAxis();
         if (mouseClipPosition) {
             const mouseWorldPosition = getMouseWorldPosition(mouseClipPosition, scale, axisOffset);

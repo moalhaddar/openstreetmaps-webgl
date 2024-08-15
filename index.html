@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
     <head>
-        <script id="node-vertex-shader" type="shader">
+        <script id="vertex-shader" type="shader">
             attribute vec2 a_position;
             uniform vec2 u_offset;
             uniform vec2 u_scale;
@@ -11,25 +11,7 @@
                 gl_Position = vec4(final_position, 0, 1);
             }
         </script>
-        <script id="node-fragment-shader" type="shader">
-            precision mediump float;
-
-            void main() {
-                gl_FragColor = vec4(1, 0, 0.5, 1);
-            }
-        </script>
-
-        <script id="way-vertex-shader" type="shader">
-            attribute vec2 a_position;
-            uniform vec2 u_offset;
-            uniform vec2 u_scale;
-
-            void main() {
-                vec2 final_position = (a_position + (u_offset)) * u_scale;
-                gl_Position = vec4(final_position, 0, 1);
-            }
-        </script>
-        <script id="way-fragment-shader" type="shader">
+        <script id="fragment-shader" type="shader">
             precision mediump float;
             uniform vec4 u_color;
 
