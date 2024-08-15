@@ -5,11 +5,29 @@ type OSMNode = {
 }
 
 type State = {
-    program: WebGLProgram ,
-    position_location: number ,
-    offset_location: WebGLUniformLocation ,
-    scale_location: WebGLUniformLocation ,
-    color_location: WebGLUniformLocation ,
+    program: WebGLProgram,
+    position_location: number,
+    offset_location: WebGLUniformLocation,
+    scale_location: WebGLUniformLocation,
+    color_location: WebGLUniformLocation,
+    
+    // transformations
+    axisOffset: [number, number]
+    scale: number
+    
+    // dragging
+    anchor: [number, number] | undefined
+
+    // zooming
+    targetScale: number;
+
+    // frametime
+    previous_render_timestamp: number;
+
+    // mouse
+    mouseWorldPosition: [number, number] | undefined;
+    mouseClipPosition: [number, number] | undefined;
+
 }
 
 const state: State = {} as any;
@@ -251,6 +269,10 @@ function drawLine(gl: WebGLRenderingContext, x1: number, y1: number, x2: number,
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([1, 0, -1, 0, 0, -1, 0, 1]), gl.STATIC_DRAW);
     const COMPONENTS_PER_AXIS = 2;
     gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_AXIS, gl.FLOAT, false, 0, 0);
+    gl.uniform2fv(state.offset_location, state.axisOffset);
+    gl.uniform2fv(state.scale_location, [state.scale, state.scale]);
+    gl.uniform4fv(state.color_location, [1, 0, 0, 1]);
+    gl.drawArrays(gl.LINES, 0, 2);
 }
 
 window.addEventListener('load', async () => {
@@ -293,46 +315,46 @@ window.addEventListener('load', async () => {
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(highwayNodesIdxs), gl.STATIC_DRAW);
 
     // State
-    let axisOffset: [number, number]= [-0.5, -0.5];
-    let anchor: [number, number] | undefined = undefined;
-    let scale = 1;
-    let targetScale = 1;
-    let previous_render_timestamp = 0;
-    let mouseClipPosition: [number, number] | undefined = undefined;
-    let mouseWorldPosition: [number, number] | undefined = undefined;
+    state.axisOffset = [-0.5, -0.5];
+    state.anchor = undefined;
+    state.scale = 1;
+    state.targetScale = 1;
+    state.previous_render_timestamp = 0;
+    state.mouseClipPosition = undefined;
+    state.mouseWorldPosition = undefined;
 
     // Events
     canvas.addEventListener('mousedown', (e) => {
         const {x, y} = getMouseClipPosition(canvas, e);
-        anchor = [x, y]
+        state.anchor = [x, y]
     })
 
     canvas.addEventListener('mouseup', () => {
-        if (anchor) {
-            anchor = undefined;
+        if (state.anchor) {
+            state.anchor = undefined;
         }
     })
 
     canvas.addEventListener('mousemove', (e) => {
         const {x, y} = getMouseClipPosition(canvas, e);
-        mouseClipPosition = [x, y];
-        if (anchor) {
-            const dx = mouseClipPosition[0] - anchor[0];
-            const dy = mouseClipPosition[1] - anchor[1];
-            axisOffset = [
-                axisOffset[0] + (dx / scale),
-                axisOffset[1] + (dy / scale)
+        state.mouseClipPosition = [x, y];
+        if (state.anchor) {
+            const dx = state.mouseClipPosition[0] - state.anchor[0];
+            const dy = state.mouseClipPosition[1] - state.anchor[1];
+            state.axisOffset = [
+                state.axisOffset[0] + (dx / state.scale),
+                state.axisOffset[1] + (dy / state.scale)
             ]
             
-            anchor = [x, y];
+            state.anchor = [x, y];
         }  
     })
 
     canvas.addEventListener('wheel', (e) => {
         if (e.deltaY < 0) {
-            targetScale++;
-        } else if (targetScale - 1 > 0) {
-            targetScale--;
+            state.targetScale++;
+        } else if (state.targetScale - 1 > 0) {
+            state.targetScale--;
         }
     })
 
@@ -342,8 +364,8 @@ window.addEventListener('load', async () => {
         gl.bindBuffer(gl.ARRAY_BUFFER, nodes_buffer);
         const COMPONENTS_PER_NODE = 2;
         gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_NODE, gl.FLOAT, false, 0, 0);
-        gl.uniform2fv(state.offset_location, axisOffset);
-        gl.uniform2fv(state.scale_location, [scale, scale]);
+        gl.uniform2fv(state.offset_location, state.axisOffset);
+        gl.uniform2fv(state.scale_location, [state.scale, state.scale]);
         gl.uniform4fv(state.color_location, [0, 1, 0, 1]);
         gl.drawArrays(
             gl.POINTS, 
@@ -358,8 +380,8 @@ window.addEventListener('load', async () => {
         gl.bindBuffer(gl.ARRAY_BUFFER, nodes_buffer);
         const COMPONENTS_PER_WAY = 2;
         gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_WAY, gl.FLOAT, false, 0, 0);
-        gl.uniform2fv(state.offset_location, axisOffset);
-        gl.uniform2fv(state.scale_location, [scale, scale]);
+        gl.uniform2fv(state.offset_location, state.axisOffset);
+        gl.uniform2fv(state.scale_location, [state.scale, state.scale]);
 
         gl.uniform4fv(state.color_location, [0.5, 0.35, 0.61, 1]);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, building_nodes_index_buffer);
@@ -379,8 +401,8 @@ window.addEventListener('load', async () => {
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([1, 0, -1, 0, 0, -1, 0, 1]), gl.STATIC_DRAW);
         const COMPONENTS_PER_AXIS = 2;
         gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_AXIS, gl.FLOAT, false, 0, 0);
-        gl.uniform2fv(state.offset_location, axisOffset);
-        gl.uniform2fv(state.scale_location, [scale, scale]);
+        gl.uniform2fv(state.offset_location, state.axisOffset);
+        gl.uniform2fv(state.scale_location, [state.scale, state.scale]);
         gl.uniform4fv(state.color_location, [1, 0, 0, 1]);
         gl.drawArrays(gl.LINES, 0, 4);
         gl.deleteBuffer(vbo);
@@ -404,8 +426,8 @@ window.addEventListener('load', async () => {
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(points), gl.STATIC_DRAW);
         const COMPONENTS_PER_AXIS = 2;
         gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_AXIS, gl.FLOAT, false, 0, 0);
-        gl.uniform2fv(state.offset_location, axisOffset);
-        gl.uniform2fv(state.scale_location, [scale, scale]);
+        gl.uniform2fv(state.offset_location, state.axisOffset);
+        gl.uniform2fv(state.scale_location, [state.scale, state.scale]);
         gl.uniform4fv(state.color_location, [1, 0, 0, 1]);
         gl.drawArrays(gl.TRIANGLE_FAN, 0, points.length / 2);
         gl.deleteBuffer(vbo);
@@ -413,8 +435,8 @@ window.addEventListener('load', async () => {
 
     // Drawing Loop
     const loop = (timestamp: number) => {
-        const dt = (timestamp -  previous_render_timestamp) / 1000;
-        previous_render_timestamp = timestamp;
+        const dt = (timestamp -  state.previous_render_timestamp) / 1000;
+        state.previous_render_timestamp = timestamp;
         // red, green, blue, alpha
         gl.clearColor(0, 0, 0, 1);
         gl.clear(gl.COLOR_BUFFER_BIT);
@@ -423,17 +445,17 @@ window.addEventListener('load', async () => {
         drawWays();
         drawNodes();
         drawClipAxis();
-        if (mouseClipPosition) {
-            const mouseWorldPosition = getMouseWorldPosition(mouseClipPosition, scale, axisOffset);
-            drawMouseCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.005 / scale);
+        if (state.mouseClipPosition) {
+            const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.axisOffset);
+            drawMouseCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.005 / state.scale);
         }
     
         
-        scale += (targetScale - scale) * 10 * dt;
+        state.scale += (state.targetScale - state.scale) * 10 * dt;
         window.requestAnimationFrame(loop);
     }
     window.requestAnimationFrame((timestamp) => {
-        previous_render_timestamp = timestamp;
+        state.previous_render_timestamp = timestamp;
 
         window.requestAnimationFrame(loop);
     });
