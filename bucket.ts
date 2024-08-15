@@ -25,7 +25,7 @@ class BucketMap {
         }
     }
 
-    getBucketIndexForLonLat(lon: number, lat: number): [number, number] {
+    getBucketLocationForLonLat(lon: number, lat: number): [number, number] {
         const { maxLat, minLat, maxLon, minLon } = this.metadata;
 
         const latRange = maxLat - minLat;
@@ -33,6 +33,12 @@ class BucketMap {
 
         let x = ((lon - minLon) / lonRange) * this.cols;
         let y = ((lat - minLat) / latRange) * this.rows;
+
+        return [x, y];
+    }
+
+    getBucketIndexForLonLat(lon: number, lat: number): [number, number] {
+        let [x, y] = this.getBucketLocationForLonLat(lon, lat);
         x = Math.trunc(x);
         y = Math.trunc(y);
 
@@ -44,13 +50,45 @@ class BucketMap {
     }
 
     getBucketEntriesForClipspace(x: number, y: number): BucketEntry[] | undefined {
-        x = x * this.cols;
-        y = y * this.rows;
-
-        x = Math.trunc(x);
-        y = Math.trunc(y);
+        x = Math.trunc(x * this.cols);
+        y = Math.trunc(y * this.rows);
  
         return this.data.get(x)?.get(y);
+    }
+
+    getClosestBucketEntryForClipspace(x: number, y: number): BucketEntry | undefined {
+        const row = Math.trunc(x * this.cols);
+        const col = Math.trunc(y * this.rows);
+
+        const bucketEntries = this.data.get(row)?.get(col)
+        if (bucketEntries === undefined) {
+            return undefined;
+        }
+
+        let closest: BucketEntry | undefined = undefined;
+
+        const distance = (v1: [number, number], v2: [number, number]) => {
+            return Math.sqrt(
+                Math.pow((v1[0] - v2[0]), 2) + Math.pow((v1[1] - v2[1]), 2)
+            )
+        }
+
+        for (let i = 0 ; i < bucketEntries.length; i++) {
+            const {lon, lat} = bucketEntries[i].node;
+            const nodeBucketLocation = this.getBucketLocationForLonLat(lon, lat);
+            const mouseBucketLocation: [number, number] = [x * this.cols, y * this.rows];
+            if (closest) {
+                const closestNodeBucketLocation = this.getBucketLocationForLonLat(closest.node.lon, closest.node.lat);
+                if (distance(mouseBucketLocation, nodeBucketLocation) <= distance(mouseBucketLocation, closestNodeBucketLocation)) {
+                    closest = bucketEntries[i];
+                }
+            } else {
+                closest = bucketEntries[i];
+            }
+
+        }
+
+        return closest;
     }
 
     put(node: OSMNode) {

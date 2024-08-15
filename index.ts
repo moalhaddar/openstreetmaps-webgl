@@ -1,6 +1,6 @@
 import BucketMap from "./bucket.js";
 import { Matrix } from "./matrix.js"
-import { Metadata, OSMNode, State } from "./types.js";
+import { Metadata, MouseButton, OSMNode, State } from "./types.js";
 
 const state: State = {} as any;
 
@@ -94,17 +94,27 @@ function generateMetadata(nodes: OSMNode[]): Metadata {
     };
 }
 
-function normalizeNodes(metadata: Metadata, nodes: OSMNode[]): number[] {
-    const { maxLat, minLat, maxLon, minLon } = metadata;
+function normalizeNode(node: OSMNode): OSMNode {
+    const { maxLat, minLat, maxLon, minLon } = state.metadata;
 
     const latRange = maxLat - minLat;
     const lonRange = maxLon - minLon;
 
+    return {
+        ...node,
+        lon: (node.lon - minLon) / lonRange,
+        lat: (node.lat - minLat) / latRange,
+    };
+}
+
+function normalizeNodes(nodes: OSMNode[]): number[] {
+
     const data = [];
     for (let i = 0; i < nodes.length; i++) {
+        const normalized = normalizeNode(nodes[i])
         data.push(
-            (nodes[i].lon - minLon) / lonRange,
-            (nodes[i].lat - minLat) / latRange,
+            normalized.lon,
+            normalized.lat,
         )
     }
 
@@ -274,7 +284,7 @@ function drawLine(x1: number, y1: number, x2: number, y2: number) {
     state.gl.drawArrays(state.gl.LINES, 0, 2);
 }
 
-function drawCircle(cx: number, cy: number, r: number) {
+function drawCircle(cx: number, cy: number, r: number, color: [number, number, number]) {
     const vbo = state.gl.createBuffer();
     state.gl.bindBuffer(state.gl.ARRAY_BUFFER, vbo);
     const RESOLUTION = 200;
@@ -290,7 +300,7 @@ function drawCircle(cx: number, cy: number, r: number) {
     state.gl.bufferData(state.gl.ARRAY_BUFFER, new Float32Array(points), state.gl.STATIC_DRAW);
     const COMPONENTS_PER_AXIS = 2;
     state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_AXIS, state.gl.FLOAT, false, 0, 0);
-    state.gl.uniform4fv(state.u_color_location, [1, 0, 0, 1]);
+    state.gl.uniform4fv(state.u_color_location, [...color, 1]);
     state.gl.drawArrays(state.gl.TRIANGLE_FAN, 0, points.length / 2);
     state.gl.deleteBuffer(vbo);
 }
@@ -306,19 +316,21 @@ window.addEventListener('load', async () => {
     state.mouseClipPosition = undefined;
     state.mouseWorldPosition = undefined;
     state.activeBucket = [];
+    state.startNode = undefined;
+    state.timeouts = [];
 
     const xmlDoc = await parseOSMXML();
     const nodes = getNodesFromXml(xmlDoc);
     const ways = getWaysFromXml(xmlDoc);
-    const metadata = generateMetadata(nodes);
+    state.metadata = generateMetadata(nodes);
     const nodeIdIdxMap = makeNodesIdIdxMap(nodes);
 
     const highwayNodes = getNodesFromWayWithTag("highway", ways, nodes, nodeIdIdxMap);
     const buildingNodes = getNodesFromWayWithTag("building", ways, nodes, nodeIdIdxMap);
-    const nodesLonLatArray = normalizeNodes(metadata, nodes)
+    const nodesLonLatArray = normalizeNodes(nodes)
     const buildingNodesIdxs = getNodeIdxs(buildingNodes, nodeIdIdxMap);
     const highwayNodesIdxs = getNodeIdxs(highwayNodes, nodeIdIdxMap);
-    state.bucketMap = new BucketMap(metadata, nodeIdIdxMap);
+    state.bucketMap = new BucketMap(state.metadata, nodeIdIdxMap);
     state.bucketMap.populate(highwayNodes.filter(x => !!x));
 
     state.canvas = initCanvas();
@@ -340,8 +352,22 @@ window.addEventListener('load', async () => {
 
     // Events
     state.canvas.addEventListener('mousedown', (e) => {
+        console.log(e);
         const { x, y } = getMouseClipPosition(e);
         state.anchor = [x, y]
+        if (state.activeBucket.length === 1) {
+            const timeoutId = setTimeout(() => {
+                if (e.button == MouseButton.Left) {
+                    state.startNode = normalizeNode(state.activeBucket[0].node)
+                } else if (e.button == MouseButton.Right) {
+                    state.endNode = normalizeNode(state.activeBucket[0].node)
+                } else if (e.button == MouseButton.Middle) {
+                    state.startNode = undefined;
+                    state.endNode = undefined;
+                }
+            }, 200)
+            state.timeouts.push(timeoutId)
+        }
     })
 
     state.canvas.addEventListener('mouseup', () => {
@@ -351,12 +377,16 @@ window.addEventListener('load', async () => {
     })
 
     state.canvas.addEventListener('mousemove', (e) => {
+        state.timeouts.forEach(clearTimeout);
         const { x, y } = getMouseClipPosition(e);
         state.mouseClipPosition = [x, y];
 
         if (state.mouseClipPosition) {
             const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.translationOffset);
-            state.activeBucket = state.bucketMap.getBucketEntriesForClipspace(mouseWorldPosition[0], mouseWorldPosition[1]) || [];
+            const entry = state.bucketMap.getClosestBucketEntryForClipspace(mouseWorldPosition[0], mouseWorldPosition[1]);
+            if (entry) {
+                state.activeBucket = [entry];
+            }
         }
 
 
@@ -380,6 +410,7 @@ window.addEventListener('load', async () => {
 
     })
 
+    document.addEventListener('contextmenu', event => event.preventDefault());
     window.addEventListener("keydown", (e) => {
         if (e.key === 'Control') {
             state.isCtrlPressed = true;
@@ -452,7 +483,7 @@ window.addEventListener('load', async () => {
             const lon = nodesLonLatArray[idx * 2];
             const lat = nodesLonLatArray[idx * 2 + 1];
             centers.push([lon, lat]);
-            drawCircle(lon, lat, 0.003 / state.scale);
+            drawCircle(lon, lat, 0.003 / state.scale, [1, 1, 0]);
         }
     }
 
@@ -472,7 +503,7 @@ window.addEventListener('load', async () => {
 
 
         drawWays();
-        drawNodes();
+        // drawNodes();
         drawClipAxis();
         drawBucket();
         if (state.mouseClipPosition) {
@@ -480,6 +511,13 @@ window.addEventListener('load', async () => {
             // drawCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.005 / state.scale);
         }
 
+        if (state.startNode) {
+            drawCircle(state.startNode.lon, state.startNode.lat, 0.006 / state.scale, [0, 1, 0]);
+        }
+
+        if (state.endNode) {
+            drawCircle(state.endNode.lon, state.endNode.lat, 0.006 / state.scale, [1, 0, 0]);
+        }
 
         state.scale += (state.targetScale - state.scale) * 10 * dt;
         window.requestAnimationFrame(loop);

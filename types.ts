@@ -46,9 +46,23 @@ export type State = {
     // Buckets
     bucketMap: BucketMap;
     activeBucket: BucketEntry[];
+
+    // Path finding
+    startNode: OSMNode | undefined;
+    endNode: OSMNode | undefined;
+
+    metadata: Metadata;
+
+    timeouts: number[];
 }
 
 export type BucketEntry = {
     node: OSMNode
     glIndex: number
+}
+
+export enum MouseButton {
+    Left = 0,
+    Middle = 1,
+    Right = 2
 }
