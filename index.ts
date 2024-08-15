@@ -4,6 +4,16 @@ type OSMNode = {
     lon: number;
 }
 
+type State = {
+    program: WebGLProgram ,
+    position_location: number ,
+    offset_location: WebGLUniformLocation ,
+    scale_location: WebGLUniformLocation ,
+    color_location: WebGLUniformLocation ,
+}
+
+const state: State = {} as any;
+
 async function parseOSMXML() {
     const osmXml = await fetch('./data.osm').then(data => data.text())
     const parser = new DOMParser();    
@@ -235,6 +245,14 @@ function makeWayNodesIdxsFor(type: "highway" | "building", ways: OSMWay[], nodeI
     return wayNodesIdxs;
 }
 
+function drawLine(gl: WebGLRenderingContext, x1: number, y1: number, x2: number, y2: number) {
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([1, 0, -1, 0, 0, -1, 0, 1]), gl.STATIC_DRAW);
+    const COMPONENTS_PER_AXIS = 2;
+    gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_AXIS, gl.FLOAT, false, 0, 0);
+}
+
 window.addEventListener('load', async () => {
     const xmlDoc = await parseOSMXML();
     const nodes = getNodesFromXml(xmlDoc);
@@ -256,11 +274,11 @@ window.addEventListener('load', async () => {
     const [vertex_source, fragment_source] = loadSources('#vertex-shader', '#fragment-shader');
     const vertex_shader = createShader(gl, 'vertex', vertex_source);
     const fragment_shader = createShader(gl, 'fragment', fragment_source);
-    const program = createProgram(gl, vertex_shader, fragment_shader)
-    const position_location = gl.getAttribLocation(program, 'a_position');
-    const offset_location = gl.getUniformLocation(program, 'u_offset');
-    const scale_location = gl.getUniformLocation(program, 'u_scale');
-    const color_location = gl.getUniformLocation(program, 'u_color');
+    state.program = createProgram(gl, vertex_shader, fragment_shader)
+    state.position_location = gl.getAttribLocation(state.program, 'a_position');
+    state.offset_location = gl.getUniformLocation(state.program, 'u_offset') as WebGLUniformLocation;
+    state.scale_location = gl.getUniformLocation(state.program, 'u_scale') as WebGLUniformLocation;
+    state.color_location = gl.getUniformLocation(state.program, 'u_color') as WebGLUniformLocation;
 
     const nodes_buffer = gl.createBuffer()
     gl.bindBuffer(gl.ARRAY_BUFFER, nodes_buffer);
@@ -319,14 +337,14 @@ window.addEventListener('load', async () => {
     })
 
     const drawNodes = () => {
-        gl.useProgram(program);
-        gl.enableVertexAttribArray(position_location);
+        gl.useProgram(state.program);
+        gl.enableVertexAttribArray(state.position_location);
         gl.bindBuffer(gl.ARRAY_BUFFER, nodes_buffer);
         const COMPONENTS_PER_NODE = 2;
-        gl.vertexAttribPointer(position_location, COMPONENTS_PER_NODE, gl.FLOAT, false, 0, 0);
-        gl.uniform2fv(offset_location, axisOffset);
-        gl.uniform2fv(scale_location, [scale, scale]);
-        gl.uniform4fv(color_location, [0, 1, 0, 1]);
+        gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_NODE, gl.FLOAT, false, 0, 0);
+        gl.uniform2fv(state.offset_location, axisOffset);
+        gl.uniform2fv(state.scale_location, [scale, scale]);
+        gl.uniform4fv(state.color_location, [0, 1, 0, 1]);
         gl.drawArrays(
             gl.POINTS, 
             0, 
@@ -335,42 +353,42 @@ window.addEventListener('load', async () => {
     }
     
     const drawWays = () => {
-        gl.useProgram(program);
-        gl.enableVertexAttribArray(position_location);
+        gl.useProgram(state.program);
+        gl.enableVertexAttribArray(state.position_location);
         gl.bindBuffer(gl.ARRAY_BUFFER, nodes_buffer);
         const COMPONENTS_PER_WAY = 2;
-        gl.vertexAttribPointer(position_location, COMPONENTS_PER_WAY, gl.FLOAT, false, 0, 0);
-        gl.uniform2fv(offset_location, axisOffset);
-        gl.uniform2fv(scale_location, [scale, scale]);
+        gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_WAY, gl.FLOAT, false, 0, 0);
+        gl.uniform2fv(state.offset_location, axisOffset);
+        gl.uniform2fv(state.scale_location, [scale, scale]);
 
-        gl.uniform4fv(color_location, [0.5, 0.35, 0.61, 1]);
+        gl.uniform4fv(state.color_location, [0.5, 0.35, 0.61, 1]);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, building_nodes_index_buffer);
         // Count is for the elements in the ebo, not vbo.
         gl.drawElements(gl.TRIANGLE_STRIP, buildingNodesIdxs.length, gl.UNSIGNED_INT, 0);
 
-        gl.uniform4fv(color_location, [0, 0.8, 0.99, 1]);
+        gl.uniform4fv(state.color_location, [0, 0.8, 0.99, 1]);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, highnodes_index_buffer);
         gl.drawElements(gl.LINE_STRIP, highwayNodesIdxs.length, gl.UNSIGNED_INT, 0);
     }
 
     const drawClipAxis = () => {
-        gl.useProgram(program);
-        gl.enableVertexAttribArray(position_location);
+        gl.useProgram(state.program);
+        gl.enableVertexAttribArray(state.position_location);
         const vbo = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([1, 0, -1, 0, 0, -1, 0, 1]), gl.STATIC_DRAW);
         const COMPONENTS_PER_AXIS = 2;
-        gl.vertexAttribPointer(position_location, COMPONENTS_PER_AXIS, gl.FLOAT, false, 0, 0);
-        gl.uniform2fv(offset_location, axisOffset);
-        gl.uniform2fv(scale_location, [scale, scale]);
-        gl.uniform4fv(color_location, [1, 0, 0, 1]);
+        gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_AXIS, gl.FLOAT, false, 0, 0);
+        gl.uniform2fv(state.offset_location, axisOffset);
+        gl.uniform2fv(state.scale_location, [scale, scale]);
+        gl.uniform4fv(state.color_location, [1, 0, 0, 1]);
         gl.drawArrays(gl.LINES, 0, 4);
         gl.deleteBuffer(vbo);
     }
 
     const drawMouseCircle = (cx: number, cy: number, r: number) => {
-        gl.useProgram(program);
-        gl.enableVertexAttribArray(position_location);
+        gl.useProgram(state.program);
+        gl.enableVertexAttribArray(state.position_location);
         const vbo = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
         const RESOLUTION = 200;
@@ -385,10 +403,10 @@ window.addEventListener('load', async () => {
         }
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(points), gl.STATIC_DRAW);
         const COMPONENTS_PER_AXIS = 2;
-        gl.vertexAttribPointer(position_location, COMPONENTS_PER_AXIS, gl.FLOAT, false, 0, 0);
-        gl.uniform2fv(offset_location, axisOffset);
-        gl.uniform2fv(scale_location, [scale, scale]);
-        gl.uniform4fv(color_location, [1, 0, 0, 1]);
+        gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_AXIS, gl.FLOAT, false, 0, 0);
+        gl.uniform2fv(state.offset_location, axisOffset);
+        gl.uniform2fv(state.scale_location, [scale, scale]);
+        gl.uniform4fv(state.color_location, [1, 0, 0, 1]);
         gl.drawArrays(gl.TRIANGLE_FAN, 0, points.length / 2);
         gl.deleteBuffer(vbo);
     }
