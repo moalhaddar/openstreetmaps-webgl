@@ -33,7 +33,6 @@ class BucketMap {
         y = y * this.rows;
         x = Math.trunc(x);
         y = Math.trunc(y);
-        console.log(x, y, this.data.get(x));
         return (_a = this.data.get(x)) === null || _a === void 0 ? void 0 : _a.get(y);
     }
     put(node) {

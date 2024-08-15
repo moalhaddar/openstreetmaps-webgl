@@ -241,6 +241,16 @@ function drawCircle(cx, cy, r) {
     state.gl.deleteBuffer(vbo);
 }
 window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function* () {
+    // Initial state
+    state.translationOffset = [-0.5, -0.5];
+    state.anchor = undefined;
+    state.scale = 1;
+    state.rotationAngleRad = 0;
+    state.targetScale = 1;
+    state.previous_render_timestamp = 0;
+    state.mouseClipPosition = undefined;
+    state.mouseWorldPosition = undefined;
+    state.activeBucket = [];
     const xmlDoc = yield parseOSMXML();
     const nodes = getNodesFromXml(xmlDoc);
     const ways = getWaysFromXml(xmlDoc);
@@ -263,15 +273,6 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
     const highnodes_index_buffer = state.gl.createBuffer();
     state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, highnodes_index_buffer);
     state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(highwayNodesIdxs), state.gl.STATIC_DRAW);
-    // Initial state
-    state.translationOffset = [-0.5, -0.5];
-    state.anchor = undefined;
-    state.scale = 1;
-    state.rotationAngleRad = 0;
-    state.targetScale = 1;
-    state.previous_render_timestamp = 0;
-    state.mouseClipPosition = undefined;
-    state.mouseWorldPosition = undefined;
     // Events
     state.canvas.addEventListener('mousedown', (e) => {
         const { x, y } = getMouseClipPosition(e);
@@ -354,13 +355,16 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_WAY, state.gl.FLOAT, false, 0, 0);
         state.gl.uniformMatrix3fv(state.u_matrix_location, false, state.mat.data);
         state.gl.uniform4fv(state.u_color_location, [1, 0, 0, 1]);
-        const nodeIdxs = state.activeBucket.map(x => x.glIndex);
-        const buff = state.gl.createBuffer();
-        state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, buff);
-        state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(nodeIdxs), state.gl.STATIC_DRAW);
-        state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, buff);
-        state.gl.drawElements(state.gl.POINTS, nodeIdxs.length, state.gl.UNSIGNED_INT, 0);
-        state.gl.deleteBuffer(buff);
+        const centers = [];
+        for (let i = 0; i < state.activeBucket.length; i++) {
+            const idx = state.activeBucket[i].glIndex;
+            if (idx === 0xFFFFFFFF)
+                continue;
+            const lon = nodesLonLatArray[idx * 2];
+            const lat = nodesLonLatArray[idx * 2 + 1];
+            centers.push([lon, lat]);
+            drawCircle(lon, lat, 0.003 / state.scale);
+        }
     };
     // Drawing Loop
     const loop = (timestamp) => {
@@ -375,12 +379,12 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         state.mat = state.mat.rotate(state.rotationAngleRad);
         state.mat = state.mat.scale(state.scale, state.scale);
         drawWays();
-        // drawNodes();
+        drawNodes();
         drawClipAxis();
         drawBucket();
         if (state.mouseClipPosition) {
             const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.translationOffset);
-            drawCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.005 / state.scale);
+            // drawCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.005 / state.scale);
         }
         state.scale += (state.targetScale - state.scale) * 10 * dt;
         window.requestAnimationFrame(loop);

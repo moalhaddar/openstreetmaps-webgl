@@ -280,6 +280,17 @@ function drawCircle(cx: number, cy: number, r: number) {
 }
 
 window.addEventListener('load', async () => {
+    // Initial state
+    state.translationOffset = [-0.5, -0.5];
+    state.anchor = undefined;
+    state.scale = 1;
+    state.rotationAngleRad = 0;
+    state.targetScale = 1;
+    state.previous_render_timestamp = 0;
+    state.mouseClipPosition = undefined;
+    state.mouseWorldPosition = undefined;
+    state.activeBucket = [];
+
     const xmlDoc = await parseOSMXML();
     const nodes = getNodesFromXml(xmlDoc);
     const ways = getWaysFromXml(xmlDoc);
@@ -308,15 +319,6 @@ window.addEventListener('load', async () => {
     state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, highnodes_index_buffer);
     state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(highwayNodesIdxs), state.gl.STATIC_DRAW);
 
-    // Initial state
-    state.translationOffset = [-0.5, -0.5];
-    state.anchor = undefined;
-    state.scale = 1;
-    state.rotationAngleRad = 0;
-    state.targetScale = 1;
-    state.previous_render_timestamp = 0;
-    state.mouseClipPosition = undefined;
-    state.mouseWorldPosition = undefined;
 
     // Events
     state.canvas.addEventListener('mousedown', (e) => {
@@ -425,14 +427,15 @@ window.addEventListener('load', async () => {
         state.gl.uniformMatrix3fv(state.u_matrix_location, false, state.mat.data);
         state.gl.uniform4fv(state.u_color_location, [1, 0, 0, 1]);
 
-        const nodeIdxs = state.activeBucket.map(x => x.glIndex);
-
-        const buff = state.gl.createBuffer();
-        state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, buff);
-        state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(nodeIdxs), state.gl.STATIC_DRAW)
-        state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, buff);
-        state.gl.drawElements(state.gl.POINTS, nodeIdxs.length, state.gl.UNSIGNED_INT, 0);
-        state.gl.deleteBuffer(buff);
+        const centers: number[][] = [];
+        for (let i = 0; i < state.activeBucket.length; i++) {
+            const idx = state.activeBucket[i].glIndex;
+            if (idx === 0xFFFFFFFF) continue;
+            const lon = nodesLonLatArray[idx * 2];
+            const lat = nodesLonLatArray[idx * 2 + 1];
+            centers.push([lon, lat]);
+            drawCircle(lon, lat, 0.003 / state.scale);
+        }
     }
 
     // Drawing Loop
@@ -451,12 +454,12 @@ window.addEventListener('load', async () => {
 
 
         drawWays();
-        // drawNodes();
+        drawNodes();
         drawClipAxis();
         drawBucket();
         if (state.mouseClipPosition) {
             const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.translationOffset);
-            drawCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.005 / state.scale);
+            // drawCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.005 / state.scale);
         }
 
 

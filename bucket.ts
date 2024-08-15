@@ -49,8 +49,6 @@ class BucketMap {
 
         x = Math.trunc(x);
         y = Math.trunc(y);
-
-        console.log(x, y, this.data.get(x));
  
         return this.data.get(x)?.get(y);
     }
