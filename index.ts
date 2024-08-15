@@ -1,40 +1,6 @@
+import BucketMap from "./bucket.js";
 import { Matrix } from "./matrix.js"
-
-type OSMNode = {
-    id: number;
-    lat: number;
-    lon: number;
-}
-
-type State = {
-    // Contexts
-    canvas: HTMLCanvasElement,
-    gl: WebGL2RenderingContext,
-
-    // Shader
-    program: WebGLProgram,
-    position_location: number,
-    u_matrix_location: WebGLUniformLocation,
-    u_color_location: WebGLUniformLocation,
-    mat: Matrix;
-
-    // transformations
-    anchor: [number, number] | undefined
-    translationOffset: [number, number]
-    scale: number
-    targetScale: number;
-    rotationAngleRad: number;
-    isCtrlPressed: boolean;
-    
-
-    // frametime
-    previous_render_timestamp: number;
-
-    // mouse
-    mouseWorldPosition: [number, number] | undefined;
-    mouseClipPosition: [number, number] | undefined;
-
-}
+import { Metadata, OSMNode, State } from "./types.js";
 
 const state: State = {} as any;
 
@@ -105,14 +71,6 @@ function getWaysFromXml(xml: Document): OSMWay[] {
     return ways;
 }
 
-
-type Metadata = {
-    minLat: number,
-    maxLat: number,
-    minLon: number,
-    maxLon: number,
-    nodesCount: number
-}
 
 function generateMetadata(nodes: OSMNode[]): Metadata {
     let minLat = Number.MAX_VALUE;
@@ -325,12 +283,14 @@ window.addEventListener('load', async () => {
     const xmlDoc = await parseOSMXML();
     const nodes = getNodesFromXml(xmlDoc);
     const ways = getWaysFromXml(xmlDoc);
-
     const metadata = generateMetadata(nodes);
+
     const nodeIdIdxMap = makeNodesIdIdxMap(nodes);
     const nodesLonLatArray = normalizeNodes(metadata, nodes)
     const buildingNodesIdxs = makeWayNodesIdxsFor("building", ways, nodeIdIdxMap);
     const highwayNodesIdxs = makeWayNodesIdxsFor("highway", ways, nodeIdIdxMap);
+    state.bucketMap = new BucketMap(metadata, nodeIdIdxMap);
+    state.bucketMap.populate(nodes);
 
     state.canvas = initCanvas();
     state.gl = initGl();
@@ -373,6 +333,12 @@ window.addEventListener('load', async () => {
     state.canvas.addEventListener('mousemove', (e) => {
         const { x, y } = getMouseClipPosition(e);
         state.mouseClipPosition = [x, y];
+
+        if (state.mouseClipPosition) {
+            const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.translationOffset);
+            state.activeBucket = state.bucketMap.getBucketEntriesForClipspace(mouseWorldPosition[0], mouseWorldPosition[1]) || [];
+        }
+
 
         if (state.anchor && state.isCtrlPressed) {
             const dy = state.mouseClipPosition[1] - state.anchor[1];
@@ -451,6 +417,24 @@ window.addEventListener('load', async () => {
         drawLine(0, 1, 0, -1);
     }
 
+    const drawBucket = () => {
+        state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
+        const COMPONENTS_PER_WAY = 2;
+        state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_WAY, state.gl.FLOAT, false, 0, 0);
+
+        state.gl.uniformMatrix3fv(state.u_matrix_location, false, state.mat.data);
+        state.gl.uniform4fv(state.u_color_location, [1, 0, 0, 1]);
+
+        const nodeIdxs = state.activeBucket.map(x => x.glIndex);
+
+        const buff = state.gl.createBuffer();
+        state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, buff);
+        state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(nodeIdxs), state.gl.STATIC_DRAW)
+        state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, buff);
+        state.gl.drawElements(state.gl.POINTS, nodeIdxs.length, state.gl.UNSIGNED_INT, 0);
+        state.gl.deleteBuffer(buff);
+    }
+
     // Drawing Loop
     const loop = (timestamp: number) => {
         const dt = (timestamp - state.previous_render_timestamp) / 1000;
@@ -469,6 +453,7 @@ window.addEventListener('load', async () => {
         drawWays();
         // drawNodes();
         drawClipAxis();
+        drawBucket();
         if (state.mouseClipPosition) {
             const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.translationOffset);
             drawCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.005 / state.scale);

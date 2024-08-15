@@ -7,6 +7,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+import BucketMap from "./bucket.js";
 import { Matrix } from "./matrix.js";
 const state = {};
 function parseOSMXML() {
@@ -248,6 +249,8 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
     const nodesLonLatArray = normalizeNodes(metadata, nodes);
     const buildingNodesIdxs = makeWayNodesIdxsFor("building", ways, nodeIdIdxMap);
     const highwayNodesIdxs = makeWayNodesIdxsFor("highway", ways, nodeIdIdxMap);
+    state.bucketMap = new BucketMap(metadata, nodeIdIdxMap);
+    state.bucketMap.populate(nodes);
     state.canvas = initCanvas();
     state.gl = initGl();
     initShader('#vertex-shader', '#fragment-shader');
@@ -282,6 +285,10 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
     state.canvas.addEventListener('mousemove', (e) => {
         const { x, y } = getMouseClipPosition(e);
         state.mouseClipPosition = [x, y];
+        if (state.mouseClipPosition) {
+            const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.translationOffset);
+            state.activeBucket = state.bucketMap.getBucketEntriesForClipspace(mouseWorldPosition[0], mouseWorldPosition[1]) || [];
+        }
         if (state.anchor && state.isCtrlPressed) {
             const dy = state.mouseClipPosition[1] - state.anchor[1];
             state.rotationAngleRad = dy;
@@ -341,6 +348,20 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         drawLine(1, 0, -1, 0);
         drawLine(0, 1, 0, -1);
     };
+    const drawBucket = () => {
+        state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
+        const COMPONENTS_PER_WAY = 2;
+        state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_WAY, state.gl.FLOAT, false, 0, 0);
+        state.gl.uniformMatrix3fv(state.u_matrix_location, false, state.mat.data);
+        state.gl.uniform4fv(state.u_color_location, [1, 0, 0, 1]);
+        const nodeIdxs = state.activeBucket.map(x => x.glIndex);
+        const buff = state.gl.createBuffer();
+        state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, buff);
+        state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(nodeIdxs), state.gl.STATIC_DRAW);
+        state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, buff);
+        state.gl.drawElements(state.gl.POINTS, nodeIdxs.length, state.gl.UNSIGNED_INT, 0);
+        state.gl.deleteBuffer(buff);
+    };
     // Drawing Loop
     const loop = (timestamp) => {
         const dt = (timestamp - state.previous_render_timestamp) / 1000;
@@ -356,6 +377,7 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         drawWays();
         // drawNodes();
         drawClipAxis();
+        drawBucket();
         if (state.mouseClipPosition) {
             const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.translationOffset);
             drawCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.005 / state.scale);
