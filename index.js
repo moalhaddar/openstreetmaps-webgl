@@ -200,7 +200,7 @@ function makeWayNodesIdxsFor(type, ways, nodeIdIdxMap) {
 function drawLine(gl, x1, y1, x2, y2) {
     const vbo = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([1, 0, -1, 0, 0, -1, 0, 1]), gl.STATIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([x1, y1, x2, y2]), gl.STATIC_DRAW);
     const COMPONENTS_PER_AXIS = 2;
     gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_AXIS, gl.FLOAT, false, 0, 0);
     gl.uniform2fv(state.offset_location, state.axisOffset);
@@ -226,7 +226,9 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
     const vertex_shader = createShader(gl, 'vertex', vertex_source);
     const fragment_shader = createShader(gl, 'fragment', fragment_source);
     state.program = createProgram(gl, vertex_shader, fragment_shader);
+    gl.useProgram(state.program);
     state.position_location = gl.getAttribLocation(state.program, 'a_position');
+    gl.enableVertexAttribArray(state.position_location);
     state.offset_location = gl.getUniformLocation(state.program, 'u_offset');
     state.scale_location = gl.getUniformLocation(state.program, 'u_scale');
     state.color_location = gl.getUniformLocation(state.program, 'u_color');
@@ -279,8 +281,6 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         }
     });
     const drawNodes = () => {
-        gl.useProgram(state.program);
-        gl.enableVertexAttribArray(state.position_location);
         gl.bindBuffer(gl.ARRAY_BUFFER, nodes_buffer);
         const COMPONENTS_PER_NODE = 2;
         gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_NODE, gl.FLOAT, false, 0, 0);
@@ -291,8 +291,6 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         );
     };
     const drawWays = () => {
-        gl.useProgram(state.program);
-        gl.enableVertexAttribArray(state.position_location);
         gl.bindBuffer(gl.ARRAY_BUFFER, nodes_buffer);
         const COMPONENTS_PER_WAY = 2;
         gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_WAY, gl.FLOAT, false, 0, 0);
@@ -307,22 +305,10 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         gl.drawElements(gl.LINE_STRIP, highwayNodesIdxs.length, gl.UNSIGNED_INT, 0);
     };
     const drawClipAxis = () => {
-        gl.useProgram(state.program);
-        gl.enableVertexAttribArray(state.position_location);
-        const vbo = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([1, 0, -1, 0, 0, -1, 0, 1]), gl.STATIC_DRAW);
-        const COMPONENTS_PER_AXIS = 2;
-        gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_AXIS, gl.FLOAT, false, 0, 0);
-        gl.uniform2fv(state.offset_location, state.axisOffset);
-        gl.uniform2fv(state.scale_location, [state.scale, state.scale]);
-        gl.uniform4fv(state.color_location, [1, 0, 0, 1]);
-        gl.drawArrays(gl.LINES, 0, 4);
-        gl.deleteBuffer(vbo);
+        drawLine(gl, 1, 0, -1, 0);
+        drawLine(gl, 0, 1, 0, -1);
     };
     const drawMouseCircle = (cx, cy, r) => {
-        gl.useProgram(state.program);
-        gl.enableVertexAttribArray(state.position_location);
         const vbo = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
         const RESOLUTION = 200;
