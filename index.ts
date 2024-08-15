@@ -19,14 +19,13 @@ type State = {
     mat: Matrix;
 
     // transformations
-    axisOffset: [number, number]
-    scale: number
-
-    // dragging
     anchor: [number, number] | undefined
-
-    // zooming
+    translationOffset: [number, number]
+    scale: number
     targetScale: number;
+    rotationAngleRad: number;
+    isCtrlPressed: boolean;
+    
 
     // frametime
     previous_render_timestamp: number;
@@ -350,9 +349,10 @@ window.addEventListener('load', async () => {
     state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(highwayNodesIdxs), state.gl.STATIC_DRAW);
 
     // Initial state
-    state.axisOffset = [-0.5, -0.5];
+    state.translationOffset = [-0.5, -0.5];
     state.anchor = undefined;
     state.scale = 1;
+    state.rotationAngleRad = 0;
     state.targetScale = 1;
     state.previous_render_timestamp = 0;
     state.mouseClipPosition = undefined;
@@ -373,15 +373,36 @@ window.addEventListener('load', async () => {
     state.canvas.addEventListener('mousemove', (e) => {
         const { x, y } = getMouseClipPosition(e);
         state.mouseClipPosition = [x, y];
+
+        if (state.anchor && state.isCtrlPressed) {
+            const dy = state.mouseClipPosition[1] - state.anchor[1];
+            state.rotationAngleRad = dy;
+            return;
+        }
+
         if (state.anchor) {
             const dx = state.mouseClipPosition[0] - state.anchor[0];
             const dy = state.mouseClipPosition[1] - state.anchor[1];
-            state.axisOffset = [
-                state.axisOffset[0] + (dx / state.scale),
-                state.axisOffset[1] + (dy / state.scale)
+            state.translationOffset = [
+                state.translationOffset[0] + (dx / state.scale),
+                state.translationOffset[1] + (dy / state.scale)
             ]
 
             state.anchor = [x, y];
+            
+        }
+
+    })
+
+    window.addEventListener("keydown", (e) => {
+        if (e.key === 'Control') {
+            state.isCtrlPressed = true;
+        }
+    })
+
+    window.addEventListener("keyup", (e) => {
+        if (e.key === 'Control') {
+            state.isCtrlPressed = false;
         }
     })
 
@@ -397,7 +418,7 @@ window.addEventListener('load', async () => {
         state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
         const COMPONENTS_PER_NODE = 2;
         state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_NODE, state.gl.FLOAT, false, 0, 0);
-        
+
         state.gl.uniformMatrix3fv(state.u_matrix_location, false, state.mat.data);
         state.gl.uniform4fv(state.u_color_location, [0, 1, 0, 1]);
 
@@ -440,17 +461,16 @@ window.addEventListener('load', async () => {
         state.gl.viewport(0, 0, state.gl.canvas.width, state.gl.canvas.height);
 
         state.mat = Matrix.identity();
-        state.mat = state.mat.translate(state.axisOffset[0], state.axisOffset[1]);
-        state.mat = state.mat.rotate(0);
+        state.mat = state.mat.translate(state.translationOffset[0], state.translationOffset[1]);
+        state.mat = state.mat.rotate(state.rotationAngleRad);
         state.mat = state.mat.scale(state.scale, state.scale);
 
-        console.log(state.mat.data)
 
         drawWays();
         // drawNodes();
         drawClipAxis();
         if (state.mouseClipPosition) {
-            const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.axisOffset);
+            const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.translationOffset);
             drawCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.005 / state.scale);
         }
 

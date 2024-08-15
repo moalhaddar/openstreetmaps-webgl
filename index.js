@@ -261,9 +261,10 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
     state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, highnodes_index_buffer);
     state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(highwayNodesIdxs), state.gl.STATIC_DRAW);
     // Initial state
-    state.axisOffset = [-0.5, -0.5];
+    state.translationOffset = [-0.5, -0.5];
     state.anchor = undefined;
     state.scale = 1;
+    state.rotationAngleRad = 0;
     state.targetScale = 1;
     state.previous_render_timestamp = 0;
     state.mouseClipPosition = undefined;
@@ -281,14 +282,29 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
     state.canvas.addEventListener('mousemove', (e) => {
         const { x, y } = getMouseClipPosition(e);
         state.mouseClipPosition = [x, y];
+        if (state.anchor && state.isCtrlPressed) {
+            const dy = state.mouseClipPosition[1] - state.anchor[1];
+            state.rotationAngleRad = dy;
+            return;
+        }
         if (state.anchor) {
             const dx = state.mouseClipPosition[0] - state.anchor[0];
             const dy = state.mouseClipPosition[1] - state.anchor[1];
-            state.axisOffset = [
-                state.axisOffset[0] + (dx / state.scale),
-                state.axisOffset[1] + (dy / state.scale)
+            state.translationOffset = [
+                state.translationOffset[0] + (dx / state.scale),
+                state.translationOffset[1] + (dy / state.scale)
             ];
             state.anchor = [x, y];
+        }
+    });
+    window.addEventListener("keydown", (e) => {
+        if (e.key === 'Control') {
+            state.isCtrlPressed = true;
+        }
+    });
+    window.addEventListener("keyup", (e) => {
+        if (e.key === 'Control') {
+            state.isCtrlPressed = false;
         }
     });
     state.canvas.addEventListener('wheel', (e) => {
@@ -334,15 +350,14 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         state.gl.clear(state.gl.COLOR_BUFFER_BIT);
         state.gl.viewport(0, 0, state.gl.canvas.width, state.gl.canvas.height);
         state.mat = Matrix.identity();
-        state.mat = state.mat.translate(state.axisOffset[0], state.axisOffset[1]);
-        state.mat = state.mat.rotate(0);
+        state.mat = state.mat.translate(state.translationOffset[0], state.translationOffset[1]);
+        state.mat = state.mat.rotate(state.rotationAngleRad);
         state.mat = state.mat.scale(state.scale, state.scale);
-        console.log(state.mat.data);
         drawWays();
         // drawNodes();
         drawClipAxis();
         if (state.mouseClipPosition) {
-            const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.axisOffset);
+            const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.translationOffset);
             drawCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.005 / state.scale);
         }
         state.scale += (state.targetScale - state.scale) * 10 * dt;
