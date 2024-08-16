@@ -58,7 +58,7 @@ export type State = {
     endNode: OSMNode | undefined;
     graph: Record<string, Record<string, number>>
     path: number[]
-    visited: Set<number>;
+    visited: number[];
 
     timeouts: number[];
 

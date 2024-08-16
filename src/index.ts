@@ -59,7 +59,7 @@ window.addEventListener('load', async () => {
     state.timeouts = [];
     state.graph = {};
     state.path = [];
-    state.visited = new Set();
+    state.visited = [];
 
     const proxy = await worker();
 
@@ -166,7 +166,7 @@ window.addEventListener('load', async () => {
 
         if (e.code === 'Space') {
             state.path = [];
-            state.visited = new Set();
+            state.visited.length = 0;
             proxy.dijkstra(state.startNode, state.nodeIdIdxMap)
             .then((result: any) => {
                 if (result) {
@@ -228,10 +228,6 @@ window.addEventListener('load', async () => {
         state.gl.drawElements(state.gl.LINE_STRIP, state.highwayNodesIdxs.length, state.gl.UNSIGNED_INT, 0);
 
 
-        state.gl.uniform4fv(state.u_color_location, [1, 0, 0, 1]);
-        state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, path_buffer);
-        state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(state.path), state.gl.STATIC_DRAW);
-        state.gl.drawElements(state.gl.LINE_STRIP, state.path.length, state.gl.UNSIGNED_INT, 0);
     }
 
     const drawClipAxis = () => {
@@ -258,18 +254,23 @@ window.addEventListener('load', async () => {
         }
     }
 
-    const drawVisitedPath = () => {
+    const drawGraphData = () => {
         state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
         const COMPONENTS_PER_WAY = 2;
         state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_WAY, state.gl.FLOAT, false, 0, 0);
         state.gl.uniformMatrix3fv(state.u_matrix_location, false, state.mat.data);
         state.gl.uniform4fv(state.u_color_location, [1, 0, 0, 1]);
-        const visitedIdxs = Array.from(state.visited.keys());
+        const visitedIdxs = state.visited;
         const buf = state.gl.createBuffer();        
         state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, buf);
         state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(visitedIdxs), state.gl.STATIC_DRAW);
-        state.gl.drawElements(state.gl.POINTS, visitedIdxs.length, state.gl.UNSIGNED_INT, 0);
+        state.gl.drawElements(state.gl.LINES, visitedIdxs.length, state.gl.UNSIGNED_INT, 0);
         state.gl.deleteBuffer(buf);
+
+        state.gl.uniform4fv(state.u_color_location, [0, 1, 0, 1]);
+        state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, path_buffer);
+        state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(state.path), state.gl.STATIC_DRAW);
+        state.gl.drawElements(state.gl.LINE_STRIP, state.path.length, state.gl.UNSIGNED_INT, 0);
     }
 
     // Drawing Loop
@@ -288,10 +289,10 @@ window.addEventListener('load', async () => {
 
 
         drawWays();
+        drawGraphData();
         drawNodes;
         drawClipAxis();
         drawBucket();
-        drawVisitedPath();
         if (state.mouseClipPosition) {
             // const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.translationOffset);
             // drawCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.005 / state.scale);

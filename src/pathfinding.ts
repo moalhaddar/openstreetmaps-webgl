@@ -34,12 +34,6 @@ export function dijkstra(startNode: OSMNode, nodeIdIdxMap: Map<number, number>) 
         const closestNodeIndex = nodes.shift() as string;
         if (distances[closestNodeIndex] === Infinity) break;
         visited.add(closestNodeIndex);
-        self.postMessage({
-            eventType: "GRAPH_VISITED_UPDATE",
-            eventData: {
-                nodeIdx: closestNodeIndex
-            },
-        })
 
         for (let neighbor in state.graph[closestNodeIndex]) {
             // If the neighbor hasn't been visited yet
@@ -52,14 +46,13 @@ export function dijkstra(startNode: OSMNode, nodeIdIdxMap: Map<number, number>) 
                     // Update the shortest distance to this neighbor
                     distances[neighbor] = newDistance;
                     previous[neighbor] = closestNodeIndex;
-                    // self.postMessage({
-                    //     eventType: "GRAPH_UPDATE",
-                    //     eventData: {
-                    //         neighbor,
-                    //         newDistance,
-                    //         closestNodeIndex
-                    //     },
-                    // })
+                    self.postMessage({
+                            eventType: "GRAPH_VISITED_UPDATE",
+                            eventData: {
+                                parentNode: neighbor,
+                                node: closestNodeIndex
+                            },
+                    })
                 }
             }
         }
