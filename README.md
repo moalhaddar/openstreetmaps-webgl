@@ -30,7 +30,7 @@ I could, but then where's the fun and the learning experience of the foundationa
 |:--:|
 | Green is starting node, red is target node, yellow is the dijkstra algorithm output |
 
-| ![](./assets/output.mp4) |
+| https://github.com/moalhaddar/openstreetmaps-webgl/raw/master/assets/output.mp4 |
 |:--:|
 | Algorithm in action.|
 
