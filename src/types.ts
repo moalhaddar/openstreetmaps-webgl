@@ -15,6 +15,11 @@ export type OSMNode = {
     lon: number;
 }
 
+export type OSMWay = {
+    node_ids: number[]
+    tags: Map<string, string>
+}
+
 export type State = {
     // Contexts
     canvas: HTMLCanvasElement,
@@ -53,9 +58,19 @@ export type State = {
     graph: Record<string, Record<string, number>>
     path: number[]
 
-    metadata: Metadata;
-
     timeouts: number[];
+
+    // OSM processed data
+    xmlDoc: Document;
+    nodes: OSMNode[];
+    nodeIdIdxMap: Map<number, number>; // state.nodes[idx]
+    normalizedNodesLonLatArray: number[] // [lon, lat, lon, lat ...]
+    ways: OSMWay[];
+    highwayNodes: (OSMNode | undefined)[] // undefined is a delimiter.
+    highwayNodesIdxs: number[] // state.nodes[idx]
+    buildingNodes: (OSMNode | undefined)[] // undefined is a delimiter.
+    buildingNodesIdxs: number[] // state.nodes[idx]
+    metadata: Metadata;
 }
 
 export type BucketEntry = {

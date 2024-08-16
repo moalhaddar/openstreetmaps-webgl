@@ -1,203 +1,12 @@
 import BucketMap from "./bucket.js";
 import { Matrix } from "./matrix.js"
-import { Metadata, MouseButton, OSMNode, State } from "./types.js";
+import { initBuildingNodes, initHighwayNodes, initMetadata, initNodesAndReverseLookup, initWays, normalizeNode, initFlatNodeData, parseOSMXML } from "./parser.js";
+import { drawCircle, drawLine, initGl, initShader } from "./webgl.js";
+import { state } from "./state.js";
+import { MouseButton, OSMNode } from "./types.js";
+import { initCanvas } from "./canvas.js";
+import { buildGraph, dijkstra, findPath } from "./pathfinding.js";
 
-const state: State = {} as any;
-
-async function parseOSMXML() {
-    const osmXml = await fetch('/assets/area.osm').then(data => data.text())
-    const parser = new DOMParser();
-    return parser.parseFromString(osmXml, 'text/xml');
-}
-
-function getNodesFromXml(xml: Document): OSMNode[] {
-    const nodesXml = Array.from(xml.getElementsByTagName('node'));
-    const nodes: OSMNode[] = [];
-    for (let i = 0; i < nodesXml.length; i++) {
-        const lat = nodesXml[i].getAttribute('lat')
-        const lon = nodesXml[i].getAttribute('lon')
-        const id = nodesXml[i].getAttribute('id')
-        if (id === null || lat === null || lon === null) {
-            throw new Error(`Invalid id/lat/lon values: ${id}, ${lat}, ${lon}`);
-        }
-        nodes.push({
-            id: parseInt(id),
-            lat: parseFloat(lat),
-            lon: parseFloat(lon)
-        })
-    }
-
-    return nodes;
-}
-
-type OSMWay = {
-    node_ids: number[]
-    tags: Map<string, string>
-}
-
-function getWaysFromXml(xml: Document): OSMWay[] {
-    const waysXml = Array.from(xml.getElementsByTagName('way'));
-    const ways: OSMWay[] = [];
-
-    for (let i = 0; i < waysXml.length; i++) {
-        const nodes = Array.from(waysXml[i].getElementsByTagName('nd'));
-        const tags = Array.from(waysXml[i].getElementsByTagName('tag'));
-        /**
-         * "It is possible that faulty ways with zero or one node exist"
-         * From: https://wiki.openstreetmap.org/wiki/Way
-         */
-        if (nodes.length <= 1) continue;
-
-        const way: OSMWay = {
-            node_ids: [],
-            tags: new Map<string, string>()
-        }
-
-        for (let j = 0; j < nodes.length; j++) {
-            const ref = nodes[j].getAttribute("ref");
-            if (!ref) throw new Error("Invalid node ref");
-            way.node_ids.push(Number(ref));
-        }
-
-        for (let j = 0; j < tags.length; j++) {
-            const key = tags[j].getAttribute("k");
-            const value = tags[j].getAttribute("v");
-            if (!key || !value) throw new Error("Invalid key/value pair");
-            way.tags.set(key, value);
-        }
-        ways.push(way);
-    }
-
-    return ways;
-}
-
-
-function generateMetadata(nodes: OSMNode[]): Metadata {
-    let minLat = Number.MAX_VALUE;
-    let maxLat = Number.MIN_VALUE;
-    let minLon = Number.MAX_VALUE;
-    let maxLon = Number.MIN_VALUE;
-
-    for (let node of nodes) {
-        minLat = Math.min(minLat, node.lat);
-        maxLat = Math.max(maxLat, node.lat);
-        minLon = Math.min(minLon, node.lon);
-        maxLon = Math.max(maxLon, node.lon);
-    }
-
-    return {
-        minLat,
-        maxLat,
-        minLon,
-        maxLon,
-        nodesCount: nodes.length
-    };
-}
-
-function normalizeNode(node: OSMNode): OSMNode {
-    const { maxLat, minLat, maxLon, minLon } = state.metadata;
-
-    const latRange = maxLat - minLat;
-    const lonRange = maxLon - minLon;
-
-    return {
-        ...node,
-        lon: (node.lon - minLon) / lonRange,
-        lat: (node.lat - minLat) / latRange,
-    };
-}
-
-function normalizeNodes(nodes: OSMNode[]): number[] {
-
-    const data = [];
-    for (let i = 0; i < nodes.length; i++) {
-        const normalized = normalizeNode(nodes[i])
-        data.push(
-            normalized.lon,
-            normalized.lat,
-        )
-    }
-
-    return data;
-}
-
-function createShader(type: 'vertex' | 'fragment', source: string): WebGLShader {
-    const shader = state.gl.createShader(type === 'vertex' ? state.gl.VERTEX_SHADER : state.gl.FRAGMENT_SHADER);
-    if (!shader) {
-        throw new Error("Cannot create shader");
-    }
-    state.gl.shaderSource(shader, source);
-    state.gl.compileShader(shader);
-    if (!state.gl.getShaderParameter(shader, state.gl.COMPILE_STATUS)) {
-        console.error(state.gl.getShaderInfoLog(shader));
-        state.gl.deleteShader(shader);
-        throw new Error("Cannot compile shader");
-    }
-
-    return shader;
-}
-
-function createProgram(vertexShader: WebGLShader, fragmentShader: WebGLShader): WebGLProgram {
-    const program = state.gl.createProgram();
-    if (!program) {
-        throw new Error("Cannot create the program");
-    }
-    state.gl.attachShader(program, vertexShader);
-    state.gl.attachShader(program, fragmentShader);
-    state.gl.linkProgram(program);
-    if (!state.gl.getProgramParameter(program, state.gl.LINK_STATUS)) {
-        console.error(state.gl.getProgramInfoLog(program))
-        state.gl.deleteProgram(program);
-        throw new Error("Cannot create program");
-    }
-
-    return program;
-}
-
-function loadSources(vertexId: string, fragmentId: string): [string, string] {
-    const vertexSource = document.querySelector(vertexId)?.textContent;
-    const fragmentSource = document.querySelector(fragmentId)?.textContent;
-    if (typeof vertexSource !== 'string') {
-        throw new Error("Vertex shader not available");
-    }
-
-    if (typeof fragmentSource !== 'string') {
-        throw new Error("Fragment shader not available");
-    }
-
-    return [vertexSource, fragmentSource];
-}
-
-function initCanvas(): HTMLCanvasElement {
-    const canvas = document.getElementById("canvas") as HTMLCanvasElement;
-    canvas.width = canvas.clientWidth;
-    canvas.height = canvas.clientHeight;
-
-    return canvas;
-}
-
-function initGl(): WebGL2RenderingContext {
-    const gl = state.canvas.getContext('webgl2');
-    if (!gl) {
-        throw new Error("Cannot create webgl context");
-    }
-
-    return gl;
-}
-
-function initShader(vertexShaderIdL: string, fragmentShaderId: string) {
-    const [vertex_source, fragment_source] = loadSources(vertexShaderIdL, fragmentShaderId);
-    const vertex_shader = createShader('vertex', vertex_source);
-    const fragment_shader = createShader('fragment', fragment_source);
-
-    state.program = createProgram(vertex_shader, fragment_shader)
-    state.gl.useProgram(state.program);
-
-    state.position_location = state.gl.getAttribLocation(state.program, 'a_position');
-    state.gl.enableVertexAttribArray(state.position_location);
-    state.u_color_location = state.gl.getUniformLocation(state.program, 'u_color') as WebGLUniformLocation;
-    state.u_matrix_location = state.gl.getUniformLocation(state.program, 'u_matrix') as WebGLUniformLocation;
-}
 
 function getMouseCanvasPosition(e: MouseEvent): { x: number, y: number } {
     const rect = state.canvas.getBoundingClientRect();
@@ -227,38 +36,14 @@ function getMouseClipPosition(e: MouseEvent): { x: number, y: number } {
     }
 }
 
-const getMouseWorldPosition = (mouseClipPosition: [number, number], scale: number, offset: [number, number]) => {
+function getMouseWorldPosition (mouseClipPosition: [number, number], scale: number, offset: [number, number]) {
     return [
         ((mouseClipPosition[0] / scale) - offset[0]),
         ((mouseClipPosition[1] / scale) - offset[1]),
     ]
 }
 
-function makeNodesIdIdxMap(nodes: OSMNode[]): Map<number, number> {
-    const map = new Map<number, number>();
-    for (let i = 0; i < nodes.length; i++) {
-        map.set(nodes[i].id, i);
-    }
-
-    return map
-}
-
-function getNodesFromWayWithTag(type: "highway" | "building", ways: OSMWay[], nodes: OSMNode[], nodeIdIdxMap: Map<number, number>): Array<OSMNode | undefined> {
-    const filteredNodes: Array<OSMNode | undefined> = [];
-    for (let i = 0; i < ways.length; i++) {
-        if (!ways[i].tags.get(type)) continue;
-        for (let j = 0; j < ways[i].node_ids.length; j++) {
-            const nodeId = ways[i].node_ids[j];
-            const idx = nodeIdIdxMap.get(nodeId);
-            if (idx === undefined) throw new Error(`Invalid node id ${nodeId} referenced in a way ${i}, but not found in root data`);
-            filteredNodes.push(nodes[idx]);
-        }
-        filteredNodes.push(undefined);
-    }
-    return filteredNodes;
-}
-
-function getNodeIdxs(nodes: Array<OSMNode | undefined>, nodeIdIdxMap: Map<number, number>) {
+function getNodeIdxs(nodes: Array<OSMNode | undefined>) {
     const wayNodesIdxs: number[] = [];
     for (let i = 0; i < nodes.length; i++) {
         const node = nodes[i];
@@ -267,143 +52,11 @@ function getNodeIdxs(nodes: Array<OSMNode | undefined>, nodeIdIdxMap: Map<number
             continue;
         }
         const nodeId = node.id;
-        const idx = nodeIdIdxMap.get(nodeId);
+        const idx = state.nodeIdIdxMap.get(nodeId);
         if (idx === undefined) throw new Error(`Invalid node id ${nodeId} referenced in a way ${i}, but not found in root data`);
         wayNodesIdxs.push(idx);
     }
     return wayNodesIdxs;
-}
-
-function drawLine(x1: number, y1: number, x2: number, y2: number) {
-    const vbo = state.gl.createBuffer();
-    state.gl.bindBuffer(state.gl.ARRAY_BUFFER, vbo);
-    state.gl.bufferData(state.gl.ARRAY_BUFFER, new Float32Array([x1, y1, x2, y2]), state.gl.STATIC_DRAW);
-    const COMPONENTS_PER_AXIS = 2;
-    state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_AXIS, state.gl.FLOAT, false, 0, 0);
-    state.gl.uniform4fv(state.u_color_location, [1, 0, 0, 1]);
-    state.gl.drawArrays(state.gl.LINES, 0, 2);
-}
-
-function drawCircle(cx: number, cy: number, r: number, color: [number, number, number]) {
-    const vbo = state.gl.createBuffer();
-    state.gl.bindBuffer(state.gl.ARRAY_BUFFER, vbo);
-    const RESOLUTION = 200;
-    const points = [cx, cy];
-    for (let i = 0; i <= RESOLUTION; i++) {
-        const x = r * Math.cos((i * Math.PI * 2) / RESOLUTION);
-        const y = r * Math.sin((i * Math.PI * 2) / RESOLUTION);
-        points.push(
-            points[0] + x,
-            points[1] + y
-        )
-    }
-    state.gl.bufferData(state.gl.ARRAY_BUFFER, new Float32Array(points), state.gl.STATIC_DRAW);
-    const COMPONENTS_PER_AXIS = 2;
-    state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_AXIS, state.gl.FLOAT, false, 0, 0);
-    state.gl.uniform4fv(state.u_color_location, [...color, 1]);
-    state.gl.drawArrays(state.gl.TRIANGLE_FAN, 0, points.length / 2);
-    state.gl.deleteBuffer(vbo);
-}
-
-function findPath(previous: Record<string, string | undefined>, nodeIdIdxMap: Map<number, number>) {
-    if (state.endNode === undefined) return;
-    const path = [];
-    let u: string | undefined = String(nodeIdIdxMap.get(state.endNode.id));
-    if (u === undefined) throw new Error(`Cannot find target node in the reverse lookup ${1}`);
-    while (u !== undefined) {
-        path.unshift(u);
-        u = previous[u];
-    }
-
-    return path;
-}
-
-function dijkstra(nodeIdIdxMap: Map<number, number>) {
-    if (!state.startNode) return;
-    let distances: Record<string, number> = {};
-    let previous: Record<string, string | undefined> = {};
-    const visited = new Set();
-    let nodes = Object.keys(state.graph);
-    for (let node of nodes) {
-        distances[node] = Infinity;
-        previous[node] = undefined;
-    }
-
-    const startNodeIndex = nodeIdIdxMap.get(state.startNode.id);
-    if (!startNodeIndex) throw new Error("Start node not found in reverse lookup");
-    distances[startNodeIndex] = 0;
-
-    while (nodes.length > 0) {
-        nodes.sort((a, b) => distances[a] - distances[b]);
-        const closestNodeIndex = nodes.shift() as string;
-        if (distances[closestNodeIndex] === Infinity) break;
-        visited.add(closestNodeIndex);
-
-        for (let neighbor in state.graph[closestNodeIndex]) {
-            // If the neighbor hasn't been visited yet
-            if (!visited.has(neighbor)) {
-                // Calculate tentative distance to the neighboring node
-                let newDistance = distances[closestNodeIndex] + state.graph[closestNodeIndex][neighbor];
-                
-                // If the newly calculated distance is shorter than the previously known distance to this neighbor
-                if (newDistance < distances[neighbor]) {
-                    // Update the shortest distance to this neighbor
-                    distances[neighbor] = newDistance;
-                    previous[neighbor] = closestNodeIndex;
-                }
-            }
-        }
-    }
-
-    return {distances, previous};
-}
-
-/**
- * Ref: http://www.movable-type.co.uk/scripts/latlong.html
- * @param lon1 
- * @param lat1 
- * @param lon2 
- * @param lat2 
- */
-function haversine(lon1: number, lat1: number, lon2: number, lat2: number) {
-    const R = 6371e3; // metres
-    const φ1 = lat1 * Math.PI/180; // φ, λ in radians
-    const φ2 = lat2 * Math.PI/180;
-    const Δφ = (lat2-lat1) * Math.PI/180;
-    const Δλ = (lon2-lon1) * Math.PI/180;
-    
-    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ/2) * Math.sin(Δλ/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    
-    const d = R * c; // in metres
-
-    return d;
-}
-
-function buildGraph(nodes: (OSMNode | undefined)[], nodeIdIdxMap: Map<number, number>) {
-    const graph: Record<string, Record<string, number>> = {};
-    for (let i = 0; i < nodes.length; i++) {
-        const start = nodes[i];
-        const end = nodes[i + 1]
-        if (start && end) {
-            const startIndex = nodeIdIdxMap.get(start.id);
-            const endIndex = nodeIdIdxMap.get(end.id);
-            if (startIndex === undefined || endIndex === undefined) {
-                throw new Error("Cannot find index for node ids");   
-            }
-            const distance = haversine(start.lon, start.lat, end.lon, end.lat);
-            if (graph[startIndex] === undefined) {
-                graph[startIndex] = {};
-            }
-            graph[startIndex][endIndex] = distance;
-        } else {
-            continue;
-        }
-    }
-
-    state.graph = graph;
 }
 
 window.addEventListener('load', async () => {
@@ -422,28 +75,26 @@ window.addEventListener('load', async () => {
     state.graph = {};
     state.path = [];
 
-    const xmlDoc = await parseOSMXML();
-    const nodes = getNodesFromXml(xmlDoc);
-    const ways = getWaysFromXml(xmlDoc);
-    state.metadata = generateMetadata(nodes);
-    const nodeIdIdxMap = makeNodesIdIdxMap(nodes);
+    await parseOSMXML();
+    initNodesAndReverseLookup();
+    initWays();
+    initMetadata();
+    initHighwayNodes();
+    initBuildingNodes();
+    initFlatNodeData()
+    const highwayNodesIdxs = getNodeIdxs(state.highwayNodes);
+    const buildingNodesIdxs = getNodeIdxs(state.buildingNodes);
+    buildGraph()
+    BucketMap.init();
+    state.bucketMap.populate(state.highwayNodes.filter(x => !!x));
 
-    const highwayNodes = getNodesFromWayWithTag("highway", ways, nodes, nodeIdIdxMap);
-    const buildingNodes = getNodesFromWayWithTag("building", ways, nodes, nodeIdIdxMap);
-    const nodesLonLatArray = normalizeNodes(nodes)
-    const buildingNodesIdxs = getNodeIdxs(buildingNodes, nodeIdIdxMap);
-    const highwayNodesIdxs = getNodeIdxs(highwayNodes, nodeIdIdxMap);
-    buildGraph(highwayNodes, nodeIdIdxMap)
-    state.bucketMap = new BucketMap(state.metadata, nodeIdIdxMap);
-    state.bucketMap.populate(highwayNodes.filter(x => !!x));
-
-    state.canvas = initCanvas();
-    state.gl = initGl();
+    initCanvas();
+    initGl();
     initShader('#vertex-shader', '#fragment-shader');
 
     const nodes_buffer = state.gl.createBuffer()
     state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
-    state.gl.bufferData(state.gl.ARRAY_BUFFER, new Float32Array(nodesLonLatArray), state.gl.STATIC_DRAW);
+    state.gl.bufferData(state.gl.ARRAY_BUFFER, new Float32Array(state.normalizedNodesLonLatArray), state.gl.STATIC_DRAW);
 
     const building_nodes_index_buffer = state.gl.createBuffer();
     state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, building_nodes_index_buffer);
@@ -524,9 +175,9 @@ window.addEventListener('load', async () => {
         }
 
         if (e.code === 'Space') {
-            const result = dijkstra(nodeIdIdxMap)
+            const result = dijkstra()
             if (result) {
-                const path = findPath(result.previous, nodeIdIdxMap);
+                const path = findPath(result.previous);
                 if (path) {
                     state.path = path.map(x => Number(x));
                 }
@@ -559,7 +210,7 @@ window.addEventListener('load', async () => {
         state.gl.drawArrays(
             state.gl.POINTS,
             0,
-            nodesLonLatArray.length / COMPONENTS_PER_NODE // How many points in the vbo
+            state.normalizedNodesLonLatArray.length / COMPONENTS_PER_NODE // How many points in the vbo
         );
     }
 
@@ -603,8 +254,8 @@ window.addEventListener('load', async () => {
         for (let i = 0; i < state.activeBucket.length; i++) {
             const idx = state.activeBucket[i].glIndex;
             if (idx === 0xFFFFFFFF) continue;
-            const lon = nodesLonLatArray[idx * 2];
-            const lat = nodesLonLatArray[idx * 2 + 1];
+            const lon = state.normalizedNodesLonLatArray[idx * 2];
+            const lat = state.normalizedNodesLonLatArray[idx * 2 + 1];
             centers.push([lon, lat]);
             drawCircle(lon, lat, 0.003 / state.scale, [1, 1, 0]);
         }

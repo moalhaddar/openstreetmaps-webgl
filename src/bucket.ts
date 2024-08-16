@@ -1,8 +1,5 @@
+import { state } from "./state.js";
 import { BucketEntry, Metadata, OSMNode } from "./types";
-
-
-// Given lat, long => i,j => bucket
-// A bucket contain {OSMNode, gl_index}
 
 
 class BucketMap {
@@ -10,12 +7,13 @@ class BucketMap {
     cols: number = 100;
     data: Map<number, Map<number, BucketEntry[]>> = new Map();
     metadata: Metadata;
-    nodeIdIdxMap: Map<number, number>;
 
-
-    constructor(metadata: Metadata, nodeIdIdxMap: Map<number, number>) {
+    constructor(metadata: Metadata) {
         this.metadata = metadata;
-        this.nodeIdIdxMap = nodeIdIdxMap;
+    }
+
+    static init() {
+        state.bucketMap = new BucketMap(state.metadata);
     }
 
     populate(nodes: OSMNode[]) {
@@ -102,7 +100,7 @@ class BucketMap {
             y = this.rows - 1;
         }
 
-        const glIndex = this.nodeIdIdxMap.get(node.id)
+        const glIndex = state.nodeIdIdxMap.get(node.id)
 
         if (glIndex === undefined) {
             throw new Error(`Failed to find glIndex for node id ${node.id}`)
