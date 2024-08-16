@@ -78,11 +78,14 @@ export function haversine(lon1: number, lat1: number, lon2: number, lat2: number
 }
 
 export function buildGraph() {
-    const { highwayNodes: nodes } = state;
+    const { highwayNodesIdxs, nodes } = state;
     const graph: Record<string, Record<string, number>> = {};
-    for (let i = 0; i < nodes.length; i++) {
-        const start = nodes[i];
-        const end = nodes[i + 1]
+    for (let i = 0; i < highwayNodesIdxs.length; i++) {
+        const currentNodeIndex = highwayNodesIdxs[i];
+        const nextNodeIndex = highwayNodesIdxs[i + 1];
+        // 0xFFFFFFFF will give undefined, so that will act like delimiter between way nodes
+        const start = nodes[currentNodeIndex];
+        const end = nodes[nextNodeIndex]
         if (start && end) {
             const startIndex = state.nodeIdIdxMap.get(start.id);
             const endIndex = state.nodeIdIdxMap.get(end.id);

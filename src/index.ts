@@ -43,22 +43,6 @@ function getMouseWorldPosition (mouseClipPosition: [number, number], scale: numb
     ]
 }
 
-function getNodeIdxs(nodes: Array<OSMNode | undefined>) {
-    const wayNodesIdxs: number[] = [];
-    for (let i = 0; i < nodes.length; i++) {
-        const node = nodes[i];
-        if (node === undefined) {
-            wayNodesIdxs.push(0xFFFFFFFF);
-            continue;
-        }
-        const nodeId = node.id;
-        const idx = state.nodeIdIdxMap.get(nodeId);
-        if (idx === undefined) throw new Error(`Invalid node id ${nodeId} referenced in a way ${i}, but not found in root data`);
-        wayNodesIdxs.push(idx);
-    }
-    return wayNodesIdxs;
-}
-
 window.addEventListener('load', async () => {
     // Initial state
     state.translationOffset = [-0.5, -0.5];
@@ -82,11 +66,9 @@ window.addEventListener('load', async () => {
     initHighwayNodes();
     initBuildingNodes();
     initFlatNodeData()
-    const highwayNodesIdxs = getNodeIdxs(state.highwayNodes);
-    const buildingNodesIdxs = getNodeIdxs(state.buildingNodes);
     buildGraph()
     BucketMap.init();
-    state.bucketMap.populate(state.highwayNodes.filter(x => !!x));
+    state.bucketMap.populate(state.highwayNodes);
 
     initCanvas();
     initGl();
@@ -98,11 +80,11 @@ window.addEventListener('load', async () => {
 
     const building_nodes_index_buffer = state.gl.createBuffer();
     state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, building_nodes_index_buffer);
-    state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(buildingNodesIdxs), state.gl.STATIC_DRAW);
+    state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(state.buildingNodesIdxs), state.gl.STATIC_DRAW);
 
     const highnodes_index_buffer = state.gl.createBuffer();
     state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, highnodes_index_buffer);
-    state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(highwayNodesIdxs), state.gl.STATIC_DRAW);
+    state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(state.highwayNodesIdxs), state.gl.STATIC_DRAW);
 
     const path_buffer = state.gl.createBuffer();
     state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, path_buffer);
@@ -224,11 +206,11 @@ window.addEventListener('load', async () => {
 
         state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, building_nodes_index_buffer);
         // Count is for the elements in the ebo, not vbo.
-        state.gl.drawElements(state.gl.TRIANGLE_STRIP, buildingNodesIdxs.length, state.gl.UNSIGNED_INT, 0);
+        state.gl.drawElements(state.gl.TRIANGLE_STRIP, state.buildingNodesIdxs.length, state.gl.UNSIGNED_INT, 0);
 
         state.gl.uniform4fv(state.u_color_location, [0, 0.8, 0.99, 1]);
         state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, highnodes_index_buffer);
-        state.gl.drawElements(state.gl.LINE_STRIP, highwayNodesIdxs.length, state.gl.UNSIGNED_INT, 0);
+        state.gl.drawElements(state.gl.LINE_STRIP, state.highwayNodesIdxs.length, state.gl.UNSIGNED_INT, 0);
 
 
         state.gl.uniform4fv(state.u_color_location, [1, 0, 0, 1]);

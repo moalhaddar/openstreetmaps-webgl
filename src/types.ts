@@ -66,9 +66,9 @@ export type State = {
     nodeIdIdxMap: Map<number, number>; // state.nodes[idx]
     normalizedNodesLonLatArray: number[] // [lon, lat, lon, lat ...]
     ways: OSMWay[];
-    highwayNodes: (OSMNode | undefined)[] // undefined is a delimiter.
+    highwayNodes: OSMNode[];
     highwayNodesIdxs: number[] // state.nodes[idx]
-    buildingNodes: (OSMNode | undefined)[] // undefined is a delimiter.
+    buildingNodes: OSMNode[];
     buildingNodesIdxs: number[] // state.nodes[idx]
     metadata: Metadata;
 }

@@ -91,9 +91,12 @@ export function initMetadata() {
 }
 
 
-
-function getNodesFromWayWithTag(type: "highway" | "building"): Array<OSMNode | undefined> {
-    const filteredNodes: Array<OSMNode | undefined> = [];
+function getNodesFromWayWithTag(type: "highway" | "building"): {
+    nodes: OSMNode[];
+    idxs: number[];
+} {
+    const filteredNodes: OSMNode[] = [];
+    const filteredNodesIdx: number[] = [];
     const { nodes, ways } = state;
     for (let i = 0; i < ways.length; i++) {
         if (!ways[i].tags.get(type)) continue;
@@ -102,18 +105,26 @@ function getNodesFromWayWithTag(type: "highway" | "building"): Array<OSMNode | u
             const idx = state.nodeIdIdxMap.get(nodeId);
             if (idx === undefined) throw new Error(`Invalid node id ${nodeId} referenced in a way ${i}, but not found in root data`);
             filteredNodes.push(nodes[idx]);
+            filteredNodesIdx.push(idx);
         }
-        filteredNodes.push(undefined);
+        filteredNodesIdx.push(0xFFFFFFFF);
     }
-    return filteredNodes;
+    return {
+        nodes: filteredNodes, 
+        idxs: filteredNodesIdx
+    };
 }
 
 export function initHighwayNodes() {
-    state.highwayNodes = getNodesFromWayWithTag("highway");
+    const { nodes, idxs } = getNodesFromWayWithTag("highway");
+    state.highwayNodes = nodes;
+    state.highwayNodesIdxs = idxs;
 }
 
 export function initBuildingNodes() {
-    state.buildingNodes = getNodesFromWayWithTag("building");
+    const { nodes, idxs } = getNodesFromWayWithTag("building");
+    state.buildingNodes = nodes;
+    state.buildingNodesIdxs = idxs;
 }
 
 export function normalizeNode(node: OSMNode): OSMNode {
