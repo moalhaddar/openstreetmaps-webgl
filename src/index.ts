@@ -111,12 +111,16 @@ window.addEventListener('load', async () => {
             const timeoutId = setTimeout(() => {
                 if (e.button == MouseButton.Left) {
                     state.startNode = normalizeNode(state.activeBucket[0].node)
+                    state.path = [];
+                    state.visited = [];
                     const idx = state.activeBucket[0].glIndex;
                     const lon = state.normalizedNodesLonLatArray[idx * 2];
                     const lat = state.normalizedNodesLonLatArray[idx * 2 + 1];
                     state.startNodeTarget = new Matrix(1, 2, [lon, lat]);
                 } else if (e.button == MouseButton.Right) {
                     state.endNode = normalizeNode(state.activeBucket[0].node)
+                    state.path = [];
+                    state.visited = [];
                     const idx = state.activeBucket[0].glIndex;
                     const lon = state.normalizedNodesLonLatArray[idx * 2];
                     const lat = state.normalizedNodesLonLatArray[idx * 2 + 1];
