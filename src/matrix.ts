@@ -21,6 +21,72 @@ class Matrix {
         return this.rows * row + column;
     }
 
+    x(): number {
+        return this.data[this.at(0, 0)];
+    }
+
+    y(): number {
+        return this.data[this.at(0, 1)];
+    }
+
+    add(mat: Matrix): Matrix {
+        if (this.rows !== mat.rows || this.cols !== mat.cols) {
+            throw new Error(`Cannot add ${this.rows}x${this.cols} with ${mat.rows}x${mat.cols}`);
+        }
+        const result = new Matrix(mat.rows, mat.cols);
+
+        for (let i = 0; i < result.rows; i++) {
+            for (let j = 0; j < result.cols; j++) {
+                result.data[this.at(i, j)] = this.data[this.at(i, j)] + mat.data[this.at(i, j)]
+            }
+        }
+
+        return result;
+    }
+
+    subtract(mat: Matrix): Matrix {
+        if (this.rows !== mat.rows || this.cols !== mat.cols) {
+            throw new Error(`Cannot subtract ${this.rows}x${this.cols} with ${mat.rows}x${mat.cols}`);
+        }
+        const result = new Matrix(mat.rows, mat.cols);
+
+        for (let i = 0; i < result.rows; i++) {
+            for (let j = 0; j < result.cols; j++) {
+                result.data[this.at(i, j)] = this.data[this.at(i, j)] - mat.data[this.at(i, j)]
+            }
+        }
+
+        return result;
+    }
+
+
+    div(mat: Matrix): Matrix {
+        if (this.rows !== mat.rows || this.cols !== mat.cols) {
+            throw new Error(`Cannot divide ${this.rows}x${this.cols} with ${mat.rows}x${mat.cols}`);
+        }
+        const result = new Matrix(mat.rows, mat.cols);
+
+        for (let i = 0; i < result.rows; i++) {
+            for (let j = 0; j < result.cols; j++) {
+                result.data[this.at(i, j)] = this.data[this.at(i, j)] / mat.data[this.at(i, j)]
+            }
+        }
+
+        return result;
+    }
+
+    scalar(s: number) {
+        const result = new Matrix(this.rows, this.cols);
+
+        for (let i = 0; i < result.rows; i++) {
+            for (let j = 0; j < result.cols; j++) {
+                result.data[this.at(i, j)] = this.data[this.at(i, j)] * s;
+            }
+        }
+
+        return result;
+    }
+
     multiply(mat: Matrix): Matrix {
         if (this.cols !== mat.rows) {
             throw new Error(`Cannot multiply ${this.rows}x${this.cols} by ${mat.rows}x${mat.cols}`);

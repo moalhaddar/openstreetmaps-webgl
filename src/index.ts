@@ -60,8 +60,10 @@ window.addEventListener('load', async () => {
     state.graph = {};
     state.path = [];
     state.visited = [];
-    state.startNodeTarget = [0, 0];
-    state.startNodeCurrent = [0, 0];
+    state.startNodeTarget = undefined;
+    state.startNodeCurrent = undefined;
+    state.endNodeTarget = undefined;
+    state.endNodeCurrent = undefined;
 
     const proxy = await worker();
 
@@ -112,12 +114,18 @@ window.addEventListener('load', async () => {
                     const idx = state.activeBucket[0].glIndex;
                     const lon = state.normalizedNodesLonLatArray[idx * 2];
                     const lat = state.normalizedNodesLonLatArray[idx * 2 + 1];
-                    state.startNodeTarget = [lon, lat];
+                    state.startNodeTarget = new Matrix(1, 2, [lon, lat]);
                 } else if (e.button == MouseButton.Right) {
                     state.endNode = normalizeNode(state.activeBucket[0].node)
+                    const idx = state.activeBucket[0].glIndex;
+                    const lon = state.normalizedNodesLonLatArray[idx * 2];
+                    const lat = state.normalizedNodesLonLatArray[idx * 2 + 1];
+                    state.endNodeTarget = new Matrix(1, 2, [lon, lat]);
                 } else if (e.button == MouseButton.Middle) {
                     state.startNode = undefined;
+                    state.startNodeTarget = undefined;
                     state.endNode = undefined;
+                    state.endNodeTarget = undefined;
                     state.path = [];
                     state.visited = [];
                 }
@@ -270,20 +278,45 @@ window.addEventListener('load', async () => {
         state.gl.uniformMatrix3fv(state.u_matrix_location, false, state.mat.data);
         state.gl.uniform4fv(state.u_color_location, [1, 0, 0, 1]);
 
-        state.startNodeCurrent[0] += (
-            state.startNodeTarget[0] - state.startNodeCurrent[0]
-        ) * dt * 50
+        if (state.startNodeTarget) {
+            if (state.startNodeCurrent) {
+                state.startNodeCurrent = state.startNodeCurrent
+                    .add(
+                        state.startNodeTarget
+                        .subtract(state.startNodeCurrent)
+                        .scalar(dt * 50)    
+                    )
+            } else {
+                state.startNodeCurrent = state.startNodeTarget;
+            }
+    
+            drawCircle(
+                state.startNodeCurrent.x(), 
+                state.startNodeCurrent.y(), 
+                0.006 / state.scale, 
+                [0, 1, 0]
+            );
+        }
 
-        state.startNodeCurrent[1] += (
-            state.startNodeTarget[1] - state.startNodeCurrent[1]
-        ) * dt * 50;
-
-        drawCircle(
-            state.startNodeCurrent[0], 
-            state.startNodeCurrent[1], 
-            0.006 / state.scale, 
-            [0, 1, 0]
-        );
+        if (state.endNodeTarget) {
+            if (state.endNodeCurrent) {
+                state.endNodeCurrent = state.endNodeCurrent
+                    .add(
+                        state.endNodeTarget
+                        .subtract(state.endNodeCurrent)
+                        .scalar(dt * 50)    
+                    )
+            } else {
+                state.endNodeCurrent = state.endNodeTarget;
+            }
+    
+            drawCircle(
+                state.endNodeCurrent.x(), 
+                state.endNodeCurrent.y(), 
+                0.006 / state.scale, 
+                [1, 0, 0]
+            );
+        }
     }
 
     const drawGraphData = () => {
@@ -325,7 +358,7 @@ window.addEventListener('load', async () => {
         drawGraphData();
         drawNodes;
         drawClipAxis;
-        drawBucket;
+        drawBucket();
         drawStartEndNodes(dt);
         if (state.mouseClipPosition) {
             // const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.translationOffset);
