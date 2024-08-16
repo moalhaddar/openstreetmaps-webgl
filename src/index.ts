@@ -1,7 +1,7 @@
 import BucketMap from "./bucket.js";
 import { Matrix } from "./matrix.js"
 import { initBuildingNodes, initHighwayNodes, initMetadata, initNodesAndReverseLookup, initWays, normalizeNode, initFlatNodeData, parseOSMXML } from "./parser.js";
-import { drawCircle, drawLine, initGl, initShader } from "./webgl.js";
+import { drawCircle, drawLine, drawLineEx, initGl, initShader } from "./webgl.js";
 import { state } from "./state.js";
 import { MouseButton } from "./types.js";
 import { initCanvas } from "./canvas.js";
@@ -336,10 +336,13 @@ window.addEventListener('load', async () => {
         state.gl.drawElements(state.gl.LINES, visitedIdxs.length, state.gl.UNSIGNED_INT, 0);
         state.gl.deleteBuffer(buf);
 
-        state.gl.uniform4fv(state.u_color_location, [0, 1, 0, 1]);
-        state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, path_buffer);
-        state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(state.path), state.gl.STATIC_DRAW);
-        state.gl.drawElements(state.gl.LINE_STRIP, state.path.length, state.gl.UNSIGNED_INT, 0);
+        for (let i = 0 ; i < state.path.length - 1; i+= 1) {
+            const startIdx = state.path[i];
+            const endIdx = state.path[i + 1];
+            const startNode = state.normalizedNodesLonLatArray.slice(startIdx * 2, startIdx * 2 + 2)
+            const endnode = state.normalizedNodesLonLatArray.slice(endIdx * 2, endIdx * 2 + 2)
+            drawLineEx(new Matrix(1, 2, startNode), new Matrix(1, 2, endnode), 0.01 / 6, new Matrix(1, 4, [1, 1 ,0, 1]));
+        }
     }
 
     // Drawing Loop
