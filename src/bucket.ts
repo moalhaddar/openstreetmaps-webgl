@@ -3,8 +3,8 @@ import { BucketEntry, Metadata, OSMNode } from "./types";
 
 
 class BucketMap {
-    rows: number = 100;
-    cols: number = 100;
+    rows: number = 200;
+    cols: number = 200;
     data: Map<number, Map<number, BucketEntry[]>> = new Map();
     metadata: Metadata;
 

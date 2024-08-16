@@ -48,7 +48,7 @@ window.addEventListener('load', async () => {
     // Initial state
     state.translationOffset = [-0.5, -0.5];
     state.anchor = undefined;
-    state.scale = 1;
+    state.scale = 100;
     state.rotationAngleRad = 0;
     state.targetScale = 1;
     state.previous_render_timestamp = 0;
@@ -79,8 +79,8 @@ window.addEventListener('load', async () => {
     initShader('#vertex-shader', '#fragment-shader');
 
     // Worker stuff
-    buildGraph(state.nodes, state.highwayNodesIdxs, state.nodeIdIdxMap)
-    proxy.buildGraph(state.nodes, state.highwayNodesIdxs, state.nodeIdIdxMap)
+    buildGraph(state.ways, state.nodes, state.nodeIdIdxMap)
+    proxy.buildGraph(state.ways, state.nodes, state.nodeIdIdxMap)
 
     const nodes_buffer = state.gl.createBuffer()
     state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
@@ -107,11 +107,14 @@ window.addEventListener('load', async () => {
             const timeoutId = setTimeout(() => {
                 if (e.button == MouseButton.Left) {
                     state.startNode = normalizeNode(state.activeBucket[0].node)
+                    console.log(state.startNode.id);
                 } else if (e.button == MouseButton.Right) {
                     state.endNode = normalizeNode(state.activeBucket[0].node)
                 } else if (e.button == MouseButton.Middle) {
                     state.startNode = undefined;
                     state.endNode = undefined;
+                    state.path = [];
+                    state.visited = [];
                 }
             }, 200)
             state.timeouts.push(timeoutId)
@@ -259,7 +262,7 @@ window.addEventListener('load', async () => {
         const COMPONENTS_PER_WAY = 2;
         state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_WAY, state.gl.FLOAT, false, 0, 0);
         state.gl.uniformMatrix3fv(state.u_matrix_location, false, state.mat.data);
-        state.gl.uniform4fv(state.u_color_location, [1, 0, 0, 1]);
+        state.gl.uniform4fv(state.u_color_location, [1, 0.5, 0, 1]);
         const visitedIdxs = state.visited;
         const buf = state.gl.createBuffer();        
         state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, buf);
@@ -276,6 +279,7 @@ window.addEventListener('load', async () => {
     // Drawing Loop
     const loop = (timestamp: number) => {
         const dt = (timestamp - state.previous_render_timestamp) / 1000;
+        if (dt <= 0) window.requestAnimationFrame(loop);
         state.previous_render_timestamp = timestamp;
         // red, green, blue, alpha
         state.gl.clearColor(0, 0, 0, 1);
@@ -291,7 +295,7 @@ window.addEventListener('load', async () => {
         drawWays();
         drawGraphData();
         drawNodes;
-        drawClipAxis();
+        drawClipAxis;
         drawBucket();
         if (state.mouseClipPosition) {
             // const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.translationOffset);
