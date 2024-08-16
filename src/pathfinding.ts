@@ -1,9 +1,10 @@
 import { state } from "./state.js";
+import { OSMNode } from "./types.js";
 
-export function findPath(previous: Record<string, string | undefined>) {
-    if (state.endNode === undefined) return;
+export function findPath(previous: Record<string, string | undefined>, endNode: OSMNode, nodeIdIdxMap: Map<number, number>) {
+    if (endNode === undefined) return;
     const path = [];
-    let u: string | undefined = String(state.nodeIdIdxMap.get(state.endNode.id));
+    let u: string | undefined = String(nodeIdIdxMap.get(endNode.id));
     if (u === undefined) throw new Error(`Cannot find target node in the reverse lookup ${1}`);
     while (u !== undefined) {
         path.unshift(u);
@@ -13,8 +14,8 @@ export function findPath(previous: Record<string, string | undefined>) {
     return path;
 }
 
-export function dijkstra() {
-    if (!state.startNode) return;
+export function dijkstra(startNode: OSMNode, nodeIdIdxMap: Map<number, number>) {
+    if (!startNode) return;
     let distances: Record<string, number> = {};
     let previous: Record<string, string | undefined> = {};
     const visited = new Set();
@@ -24,7 +25,7 @@ export function dijkstra() {
         previous[node] = undefined;
     }
 
-    const startNodeIndex = state.nodeIdIdxMap.get(state.startNode.id);
+    const startNodeIndex = nodeIdIdxMap.get(startNode.id);
     if (!startNodeIndex) throw new Error("Start node not found in reverse lookup");
     distances[startNodeIndex] = 0;
 
@@ -33,6 +34,12 @@ export function dijkstra() {
         const closestNodeIndex = nodes.shift() as string;
         if (distances[closestNodeIndex] === Infinity) break;
         visited.add(closestNodeIndex);
+        self.postMessage({
+            eventType: "GRAPH_VISITED_UPDATE",
+            eventData: {
+                nodeIdx: closestNodeIndex
+            },
+        })
 
         for (let neighbor in state.graph[closestNodeIndex]) {
             // If the neighbor hasn't been visited yet
@@ -45,6 +52,14 @@ export function dijkstra() {
                     // Update the shortest distance to this neighbor
                     distances[neighbor] = newDistance;
                     previous[neighbor] = closestNodeIndex;
+                    // self.postMessage({
+                    //     eventType: "GRAPH_UPDATE",
+                    //     eventData: {
+                    //         neighbor,
+                    //         newDistance,
+                    //         closestNodeIndex
+                    //     },
+                    // })
                 }
             }
         }
@@ -77,8 +92,7 @@ export function haversine(lon1: number, lat1: number, lon2: number, lat2: number
     return d;
 }
 
-export function buildGraph() {
-    const { highwayNodesIdxs, nodes } = state;
+export function buildGraph(nodes: OSMNode[], highwayNodesIdxs: number[], nodeIdIdxMap: Map<number, number>) {
     const graph: Record<string, Record<string, number>> = {};
     for (let i = 0; i < highwayNodesIdxs.length; i++) {
         const currentNodeIndex = highwayNodesIdxs[i];
@@ -87,8 +101,8 @@ export function buildGraph() {
         const start = nodes[currentNodeIndex];
         const end = nodes[nextNodeIndex]
         if (start && end) {
-            const startIndex = state.nodeIdIdxMap.get(start.id);
-            const endIndex = state.nodeIdIdxMap.get(end.id);
+            const startIndex = nodeIdIdxMap.get(start.id);
+            const endIndex = nodeIdIdxMap.get(end.id);
             if (startIndex === undefined || endIndex === undefined) {
                 throw new Error("Cannot find index for node ids");   
             }

@@ -1,11 +1,16 @@
+import { buildGraph, dijkstra, findPath } from "./pathfinding.js";
 import { WorkerEvent } from "./types";
 
 function add(a: number, b: number) {
     return a + b;
 }
 
+
 export let workerInstance = {
-    add
+    add,
+    buildGraph,
+    dijkstra,
+    findPath
 }
 
 self.addEventListener("message", function (event) {

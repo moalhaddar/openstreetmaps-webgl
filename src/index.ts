@@ -5,8 +5,8 @@ import { drawCircle, drawLine, initGl, initShader } from "./webgl.js";
 import { state } from "./state.js";
 import { MouseButton } from "./types.js";
 import { initCanvas } from "./canvas.js";
-import { buildGraph, dijkstra, findPath } from "./pathfinding.js";
 import { worker } from "./worker-manager.js";
+import { buildGraph } from "./pathfinding.js";
 
 
 function getMouseCanvasPosition(e: MouseEvent): { x: number, y: number } {
@@ -59,10 +59,9 @@ window.addEventListener('load', async () => {
     state.timeouts = [];
     state.graph = {};
     state.path = [];
+    state.visited = new Set();
 
     const proxy = await worker();
-    const res = await proxy.add(1, 2);
-    console.log(res)
 
 
     await parseOSMXML();
@@ -72,13 +71,16 @@ window.addEventListener('load', async () => {
     initHighwayNodes();
     initBuildingNodes();
     initFlatNodeData()
-    buildGraph()
     BucketMap.init();
     state.bucketMap.populate(state.highwayNodes);
 
     initCanvas();
     initGl();
     initShader('#vertex-shader', '#fragment-shader');
+
+    // Worker stuff
+    buildGraph(state.nodes, state.highwayNodesIdxs, state.nodeIdIdxMap)
+    proxy.buildGraph(state.nodes, state.highwayNodesIdxs, state.nodeIdIdxMap)
 
     const nodes_buffer = state.gl.createBuffer()
     state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
@@ -163,13 +165,20 @@ window.addEventListener('load', async () => {
         }
 
         if (e.code === 'Space') {
-            const result = dijkstra()
-            if (result) {
-                const path = findPath(result.previous);
-                if (path) {
-                    state.path = path.map(x => Number(x));
-                }
-            } 
+            state.path = [];
+            state.visited = new Set();
+            proxy.dijkstra(state.startNode, state.nodeIdIdxMap)
+            .then((result: any) => {
+                if (result) {
+                    proxy.findPath(result.previous, state.endNode, state.nodeIdIdxMap)
+                    .then((path: any) => {
+                        if (path) {
+                            console.log(path);
+                            state.path = path.map((x: any) => Number(x));
+                        }
+                    })
+                } 
+            })
         }
     })
 
@@ -249,6 +258,20 @@ window.addEventListener('load', async () => {
         }
     }
 
+    const drawVisitedPath = () => {
+        state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
+        const COMPONENTS_PER_WAY = 2;
+        state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_WAY, state.gl.FLOAT, false, 0, 0);
+        state.gl.uniformMatrix3fv(state.u_matrix_location, false, state.mat.data);
+        state.gl.uniform4fv(state.u_color_location, [1, 0, 0, 1]);
+        const visitedIdxs = Array.from(state.visited.keys());
+        const buf = state.gl.createBuffer();        
+        state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, buf);
+        state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(visitedIdxs), state.gl.STATIC_DRAW);
+        state.gl.drawElements(state.gl.POINTS, visitedIdxs.length, state.gl.UNSIGNED_INT, 0);
+        state.gl.deleteBuffer(buf);
+    }
+
     // Drawing Loop
     const loop = (timestamp: number) => {
         const dt = (timestamp - state.previous_render_timestamp) / 1000;
@@ -268,6 +291,7 @@ window.addEventListener('load', async () => {
         drawNodes;
         drawClipAxis();
         drawBucket();
+        drawVisitedPath();
         if (state.mouseClipPosition) {
             // const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.translationOffset);
             // drawCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.005 / state.scale);

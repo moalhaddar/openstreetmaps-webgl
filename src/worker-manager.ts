@@ -1,3 +1,5 @@
+import { state } from "./state.js";
+
 export function worker(): Promise<Record<any, any>> {
     const proxy: Record<any, any> = {};
  
@@ -45,6 +47,17 @@ export function worker(): Promise<Record<any, any>> {
                     idPromises[eventId].reject(event.data.eventData);
                     delete idPromises[eventId];
                 }
+            } else if (eventType === 'GRAPH_VISITED_UPDATE') {
+                // eventData: {
+                //     neighbor,
+                //     newDistance,
+                //     closestNodeIndex
+                // },
+                state.visited.add(eventData.nodeIdx);
+                // console.log(state.visited.size);
+                // if (state.endNode) {
+                //     // const path = findPath(eventData.previous, state.endNode, state.nodeIdIdxMap)
+                // }
             }
              
         });
