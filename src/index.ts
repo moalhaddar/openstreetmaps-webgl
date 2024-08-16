@@ -5,7 +5,7 @@ import { Metadata, MouseButton, OSMNode, State } from "./types.js";
 const state: State = {} as any;
 
 async function parseOSMXML() {
-    const osmXml = await fetch('./area.osm').then(data => data.text())
+    const osmXml = await fetch('/assets/area.osm').then(data => data.text())
     const parser = new DOMParser();
     return parser.parseFromString(osmXml, 'text/xml');
 }
@@ -310,14 +310,10 @@ function findPath(previous: Record<string, string | undefined>, nodeIdIdxMap: Ma
     const path = [];
     let u: string | undefined = String(nodeIdIdxMap.get(state.endNode.id));
     if (u === undefined) throw new Error(`Cannot find target node in the reverse lookup ${1}`);
-    let i = 0;
     while (u !== undefined) {
         path.unshift(u);
         u = previous[u];
-        i++
     }
-
-    console.log(i);
 
     return path;
 }
@@ -630,11 +626,11 @@ window.addEventListener('load', async () => {
 
 
         drawWays();
-        // drawNodes();
+        drawNodes;
         drawClipAxis();
         drawBucket();
         if (state.mouseClipPosition) {
-            const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.translationOffset);
+            // const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.translationOffset);
             // drawCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.005 / state.scale);
         }
 
