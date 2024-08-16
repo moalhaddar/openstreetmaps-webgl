@@ -2,7 +2,7 @@ import { state } from "./state.js";
 import { OSMNode, OSMWay } from "./types.js";
 
 export async function parseOSMXML() {
-    const osmXml = await fetch('/assets/area.osm').then(data => data.text())
+    const osmXml = await fetch('/assets/country.osm').then(data => data.text())
     const parser = new DOMParser();
     state.xmlDoc = parser.parseFromString(osmXml, 'text/xml');
 }
