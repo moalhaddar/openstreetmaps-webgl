@@ -133,7 +133,6 @@ export function buildGraph(ways: OSMWay[], nodes: OSMNode[], nodeIdIdxMap: Map<n
             if (start && end) {
                 const startIndex = nodeIdIdxMap.get(start.id);
                 const endIndex = nodeIdIdxMap.get(end.id);
-                if (start.id === 5606852717) debugger;
 
                 if (startIndex === undefined || endIndex === undefined) {
                     throw new Error("Cannot find index for node ids");   

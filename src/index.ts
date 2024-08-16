@@ -60,6 +60,8 @@ window.addEventListener('load', async () => {
     state.graph = {};
     state.path = [];
     state.visited = [];
+    state.startNodeTarget = [0, 0];
+    state.startNodeCurrent = [0, 0];
 
     const proxy = await worker();
 
@@ -107,7 +109,10 @@ window.addEventListener('load', async () => {
             const timeoutId = setTimeout(() => {
                 if (e.button == MouseButton.Left) {
                     state.startNode = normalizeNode(state.activeBucket[0].node)
-                    console.log(state.startNode.id);
+                    const idx = state.activeBucket[0].glIndex;
+                    const lon = state.normalizedNodesLonLatArray[idx * 2];
+                    const lat = state.normalizedNodesLonLatArray[idx * 2 + 1];
+                    state.startNodeTarget = [lon, lat];
                 } else if (e.button == MouseButton.Right) {
                     state.endNode = normalizeNode(state.activeBucket[0].node)
                 } else if (e.button == MouseButton.Middle) {
@@ -257,6 +262,30 @@ window.addEventListener('load', async () => {
         }
     }
 
+    const drawStartEndNodes = (dt: number) => {
+        state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
+        const COMPONENTS_PER_WAY = 2;
+        state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_WAY, state.gl.FLOAT, false, 0, 0);
+
+        state.gl.uniformMatrix3fv(state.u_matrix_location, false, state.mat.data);
+        state.gl.uniform4fv(state.u_color_location, [1, 0, 0, 1]);
+
+        state.startNodeCurrent[0] += (
+            state.startNodeTarget[0] - state.startNodeCurrent[0]
+        ) * dt * 50
+
+        state.startNodeCurrent[1] += (
+            state.startNodeTarget[1] - state.startNodeCurrent[1]
+        ) * dt * 50;
+
+        drawCircle(
+            state.startNodeCurrent[0], 
+            state.startNodeCurrent[1], 
+            0.006 / state.scale, 
+            [0, 1, 0]
+        );
+    }
+
     const drawGraphData = () => {
         state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
         const COMPONENTS_PER_WAY = 2;
@@ -296,19 +325,20 @@ window.addEventListener('load', async () => {
         drawGraphData();
         drawNodes;
         drawClipAxis;
-        drawBucket();
+        drawBucket;
+        drawStartEndNodes(dt);
         if (state.mouseClipPosition) {
             // const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.translationOffset);
             // drawCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.005 / state.scale);
         }
 
-        if (state.startNode) {
-            drawCircle(state.startNode.lon, state.startNode.lat, 0.006 / state.scale, [0, 1, 0]);
-        }
+        // if (state.startNode) {
+        //     drawCircle(state.startNode.lon, state.startNode.lat, 0.006 / state.scale, [0, 1, 0]);
+        // }
 
-        if (state.endNode) {
-            drawCircle(state.endNode.lon, state.endNode.lat, 0.006 / state.scale, [1, 0, 0]);
-        }
+        // if (state.endNode) {
+        //     drawCircle(state.endNode.lon, state.endNode.lat, 0.006 / state.scale, [1, 0, 0]);
+        // }
 
         state.scale += (state.targetScale - state.scale) * 10 * dt;
         window.requestAnimationFrame(loop);
