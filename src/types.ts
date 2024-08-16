@@ -60,7 +60,7 @@ export type State = {
     endNodeCurrent: Matrix | undefined;
     endNodeTarget: Matrix | undefined;
     endNode: OSMNode | undefined;
-    graph: Record<string, Record<string, number>>
+    graph: Map<number, Map<number, number>>;
     path: number[]
     visited: number[];
 
