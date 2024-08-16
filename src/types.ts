@@ -1,5 +1,6 @@
-import BucketMap from "./bucket";
-import { Matrix } from "./matrix";
+import BucketMap from "./bucket.js";
+import { workerInstance } from "./graph-worker.js";
+import { Matrix } from "./matrix.js";
 
 export type Metadata = {
     minLat: number,
@@ -82,4 +83,13 @@ export enum MouseButton {
     Left = 0,
     Middle = 1,
     Right = 2
+}
+
+export type WorkerEvent = {
+    eventId: number;
+    eventType: 'INITIALISE' | 'CALL' | 'RESULT';
+    eventData: {
+        method: keyof typeof workerInstance
+        arguments: any[]
+    }
 }

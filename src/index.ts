@@ -3,9 +3,10 @@ import { Matrix } from "./matrix.js"
 import { initBuildingNodes, initHighwayNodes, initMetadata, initNodesAndReverseLookup, initWays, normalizeNode, initFlatNodeData, parseOSMXML } from "./parser.js";
 import { drawCircle, drawLine, initGl, initShader } from "./webgl.js";
 import { state } from "./state.js";
-import { MouseButton, OSMNode } from "./types.js";
+import { MouseButton } from "./types.js";
 import { initCanvas } from "./canvas.js";
 import { buildGraph, dijkstra, findPath } from "./pathfinding.js";
+import { worker } from "./worker-manager.js";
 
 
 function getMouseCanvasPosition(e: MouseEvent): { x: number, y: number } {
@@ -58,6 +59,11 @@ window.addEventListener('load', async () => {
     state.timeouts = [];
     state.graph = {};
     state.path = [];
+
+    const proxy = await worker();
+    const res = await proxy.add(1, 2);
+    console.log(res)
+
 
     await parseOSMXML();
     initNodesAndReverseLookup();
