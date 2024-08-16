@@ -341,7 +341,7 @@ window.addEventListener('load', async () => {
             const endIdx = state.path[i + 1];
             const startNode = state.normalizedNodesLonLatArray.slice(startIdx * 2, startIdx * 2 + 2)
             const endnode = state.normalizedNodesLonLatArray.slice(endIdx * 2, endIdx * 2 + 2)
-            drawLineEx(new Matrix(1, 2, startNode), new Matrix(1, 2, endnode), 0.01 / 6, new Matrix(1, 4, [1, 1 ,0, 1]));
+            drawLineEx(new Matrix(1, 2, startNode), new Matrix(1, 2, endnode), (0.01 / 3) / state.scale, new Matrix(1, 4, [1, 1 ,0, 1]));
         }
     }
 
