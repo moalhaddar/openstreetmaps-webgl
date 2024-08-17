@@ -196,7 +196,6 @@ window.addEventListener('load', async () => {
                     proxy.findPath(result.previous, state.endNode, state.nodeIdIdxMap)
                     .then((path: any) => {
                         if (path) {
-                            console.log(path);
                             state.path = path.map((x: any) => x);
                         }
                     })
