@@ -43,4 +43,4 @@ I could, but then where's the fun and the learning experience of the foundationa
 - https://github.com/raysan5/raylib
 
 # Author
-Mohammed alhaddar
+Mohammed Alhaddar

@@ -102,11 +102,10 @@ export function drawCircle(cx: number, cy: number, r: number, color: [number, nu
     state.gl.drawArrays(state.gl.TRIANGLE_FAN, 0, points.length / 2);
     state.gl.deleteBuffer(vbo);
 }
-
 /**
  * Ported from raylib.js
  */
-export function drawLineEx(startPos: Matrix, endPos: Matrix, thickness: number, color: Matrix) {
+export function prepareDrawLineExBufferData(startPos: Matrix, endPos: Matrix, thickness: number) {
     const delta = new Matrix(1, 2, [endPos.x() - startPos.x(), endPos.y() - startPos.y()])
     const length = Math.sqrt(delta.x()*delta.x() + delta.y()*delta.y());
     if ((length > 0) && (thickness > 0)) {
@@ -120,13 +119,20 @@ export function drawLineEx(startPos: Matrix, endPos: Matrix, thickness: number, 
             endPos.x() + radius.x(), endPos.y() + radius.y()
         ]
 
-        const vbo = state.gl.createBuffer();
-        state.gl.bindBuffer(state.gl.ARRAY_BUFFER, vbo);
-        state.gl.bufferData(state.gl.ARRAY_BUFFER, new Float32Array(strip), state.gl.STATIC_DRAW);
-        const COMPONENTS_PER_ELEMENT = 2;
-        state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_ELEMENT, state.gl.FLOAT, false, 0, 0);
-        state.gl.uniform4fv(state.u_color_location, color.data);
-        state.gl.drawArrays(state.gl.TRIANGLE_STRIP, 0, 4);
-        state.gl.deleteBuffer(vbo);
+        return strip;
+    } else {
+        return [];
     }
+}
+
+export function drawLineEx(startPos: Matrix, endPos: Matrix, thickness: number, color: Matrix) {
+    const data = prepareDrawLineExBufferData(startPos, endPos, thickness);
+    const vbo = state.gl.createBuffer();
+    state.gl.bindBuffer(state.gl.ARRAY_BUFFER, vbo);
+    state.gl.bufferData(state.gl.ARRAY_BUFFER, new Float32Array(data), state.gl.STATIC_DRAW);
+    const COMPONENTS_PER_ELEMENT = 2;
+    state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_ELEMENT, state.gl.FLOAT, false, 0, 0);
+    state.gl.uniform4fv(state.u_color_location, color.data);
+    state.gl.drawArrays(state.gl.TRIANGLE_STRIP, 0, 4);
+    state.gl.deleteBuffer(vbo);
 }

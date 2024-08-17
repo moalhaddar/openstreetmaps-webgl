@@ -1,7 +1,7 @@
 import BucketMap from "./bucket.js";
 import { Matrix } from "./matrix.js"
 import { initBuildingNodes, initHighwayNodes, initMetadata, initNodesAndReverseLookup, initWays, normalizeNode, initFlatNodeData, parseOSMXML } from "./parser.js";
-import { drawCircle, drawLine, drawLineEx, initGl, initShader } from "./webgl.js";
+import { drawCircle, drawLine, initGl, initShader, prepareDrawLineExBufferData } from "./webgl.js";
 import { state } from "./state.js";
 import { MouseButton } from "./types.js";
 import { initCanvas } from "./canvas.js";
@@ -90,18 +90,21 @@ window.addEventListener('load', async () => {
     state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
     state.gl.bufferData(state.gl.ARRAY_BUFFER, new Float32Array(state.normalizedNodesLonLatArray), state.gl.STATIC_DRAW);
 
-    const building_nodes_index_buffer = state.gl.createBuffer();
-    state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, building_nodes_index_buffer);
+    const building_nodes_index_ebo = state.gl.createBuffer();
+    state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, building_nodes_index_ebo);
     state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(state.buildingNodesIdxs), state.gl.STATIC_DRAW);
 
-    const highnodes_index_buffer = state.gl.createBuffer();
-    state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, highnodes_index_buffer);
+    const highway_nodes_index_ebo = state.gl.createBuffer();
+    state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, highway_nodes_index_ebo);
     state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(state.highwayNodesIdxs), state.gl.STATIC_DRAW);
 
-    const path_buffer = state.gl.createBuffer();
-    state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, path_buffer);
-    state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(state.path), state.gl.STATIC_DRAW);
+    const path_buffer_vbo = state.gl.createBuffer();
+    state.gl.bindBuffer(state.gl.ARRAY_BUFFER, path_buffer_vbo);
+    state.gl.bufferData(state.gl.ARRAY_BUFFER, new Uint32Array([]), state.gl.STATIC_DRAW);
 
+    const visited_index_ebo = state.gl.createBuffer();
+    state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, visited_index_ebo);
+    state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array([]), state.gl.STATIC_DRAW);
 
     // Events
     state.canvas.addEventListener('mousedown', (e) => {
@@ -239,12 +242,12 @@ window.addEventListener('load', async () => {
         state.gl.uniformMatrix3fv(state.u_matrix_location, false, state.mat.data);
         state.gl.uniform4fv(state.u_color_location, [0.5, 0.35, 0.61, 1]);
 
-        state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, building_nodes_index_buffer);
+        state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, building_nodes_index_ebo);
         // Count is for the elements in the ebo, not vbo.
         state.gl.drawElements(state.gl.TRIANGLE_STRIP, state.buildingNodesIdxs.length, state.gl.UNSIGNED_INT, 0);
 
         state.gl.uniform4fv(state.u_color_location, [0, 0.8, 0.99, 1]);
-        state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, highnodes_index_buffer);
+        state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, highway_nodes_index_ebo);
         state.gl.drawElements(state.gl.LINE_STRIP, state.highwayNodesIdxs.length, state.gl.UNSIGNED_INT, 0);
 
 
@@ -323,31 +326,56 @@ window.addEventListener('load', async () => {
         }
     }
 
+
     const drawGraphData = () => {
+        const visitedIdxs = state.visited;
+
         state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
         const COMPONENTS_PER_WAY = 2;
         state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_WAY, state.gl.FLOAT, false, 0, 0);
         state.gl.uniformMatrix3fv(state.u_matrix_location, false, state.mat.data);
         state.gl.uniform4fv(state.u_color_location, [1, 0.5, 0, 1]);
-        const visitedIdxs = state.visited;
-        const buf = state.gl.createBuffer();        
-        state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, buf);
-        state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(visitedIdxs), state.gl.STATIC_DRAW);
-        state.gl.drawElements(state.gl.LINES, visitedIdxs.length, state.gl.UNSIGNED_INT, 0);
-        state.gl.deleteBuffer(buf);
+        
+        {   // Visited nodes highlighting
+            state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, visited_index_ebo);
+            const oldSize = state.gl.getBufferParameter(state.gl.ELEMENT_ARRAY_BUFFER, state.gl.BUFFER_SIZE) / 4;
+            if (visitedIdxs.length != oldSize) {
+                state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(visitedIdxs), state.gl.STATIC_DRAW);
+            }
+            const newSize = state.gl.getBufferParameter(state.gl.ELEMENT_ARRAY_BUFFER, state.gl.BUFFER_SIZE) / 4;
+            state.gl.drawElements(state.gl.LINES, newSize, state.gl.UNSIGNED_INT, 0);
+        }
 
-        for (let i = 0 ; i < state.path.length - 1; i+= 1) {
-            const startIdx = state.path[i];
-            const endIdx = state.path[i + 1];
-            const startNode = state.normalizedNodesLonLatArray.slice(startIdx * 2, startIdx * 2 + 2)
-            const endnode = state.normalizedNodesLonLatArray.slice(endIdx * 2, endIdx * 2 + 2)
-            drawLineEx(new Matrix(1, 2, startNode), new Matrix(1, 2, endnode), (0.01 / 3) / state.scale, new Matrix(1, 4, [1, 1 ,0, 1]));
+        {   // Path highlighting
+
+            // TODO: move this outside of the drawing loop
+            const lines = [];
+            
+            for (let i = 0 ; i < state.path.length - 1; i+= 1) {
+                const startIdx = state.path[i];
+                const endIdx = state.path[i + 1];
+                const startNode = state.normalizedNodesLonLatArray.slice(startIdx * 2, startIdx * 2 + 2)
+                const endnode = state.normalizedNodesLonLatArray.slice(endIdx * 2, endIdx * 2 + 2)
+                const line = prepareDrawLineExBufferData(new Matrix(1, 2, startNode), new Matrix(1, 2, endnode), (0.01 / 3) / state.scale);
+                lines.push(...line);
+            }
+
+            state.gl.bindBuffer(state.gl.ARRAY_BUFFER, path_buffer_vbo);
+            const oldSize = state.gl.getBufferParameter(state.gl.ARRAY_BUFFER, state.gl.BUFFER_SIZE) / 4;
+            if (lines.length != oldSize) { // TODO: Doesn't re-render on scaling
+                state.gl.bufferData(state.gl.ARRAY_BUFFER, new Float32Array(lines), state.gl.STATIC_DRAW);
+            }
+            const newSize = state.gl.getBufferParameter(state.gl.ARRAY_BUFFER, state.gl.BUFFER_SIZE) / 4;
+            const COMPONENTS_PER_ELEMENT = 2;
+            state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_ELEMENT, state.gl.FLOAT, false, 0, 0);
+            state.gl.uniform4fv(state.u_color_location, new Matrix(1, 4, [1, 1 ,0, 1]).data);
+            state.gl.drawArrays(state.gl.TRIANGLE_STRIP, 0, newSize / COMPONENTS_PER_ELEMENT);
         }
     }
-
-    // Drawing Loop
-    const loop = (timestamp: number) => {
-        const dt = (timestamp - state.previous_render_timestamp) / 1000;
+        
+        // Drawing Loop
+        const loop = (timestamp: number) => {
+            const dt = (timestamp - state.previous_render_timestamp) / 1000;
         if (dt <= 0) window.requestAnimationFrame(loop);
         state.previous_render_timestamp = timestamp;
         // red, green, blue, alpha
