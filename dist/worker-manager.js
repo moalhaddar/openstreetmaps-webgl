@@ -47,7 +47,9 @@ export function worker() {
                 state.visited.push(eventData.parentNode, eventData.node);
             }
             else if (eventType === 'GRAPH_VISITED_UPDATE_BULK') {
-                state.visited.push(...eventData);
+                for (let i = 0; i < eventData.length; i++) {
+                    state.visited.push(eventData[i]);
+                }
             }
         });
         worker.addEventListener("error", function (error) {

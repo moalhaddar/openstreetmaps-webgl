@@ -10,7 +10,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 import { state } from "./state.js";
 export function parseOSMXML() {
     return __awaiter(this, void 0, void 0, function* () {
-        const osmXml = yield fetch('/assets/area.osm').then(data => data.text());
+        const osmXml = yield fetch('/assets/country.osm').then(data => data.text());
         const parser = new DOMParser();
         state.xmlDoc = parser.parseFromString(osmXml, 'text/xml');
     });

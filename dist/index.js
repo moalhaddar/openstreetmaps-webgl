@@ -271,6 +271,9 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
             drawCircle(state.endNodeCurrent.x(), state.endNodeCurrent.y(), 0.006 / state.scale, [1, 0, 0]);
         }
     };
+    // TODO: figure out how to manage this in a cleaner way.
+    let visited_index_ebo_length = 0;
+    let path_buffer_vbo_length = 0;
     const drawGraphData = () => {
         const visitedIdxs = state.visited;
         state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
@@ -280,12 +283,11 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
         state.gl.uniform4fv(state.u_color_location, [1, 0.5, 0, 1]);
         { // Visited nodes highlighting
             state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, visited_index_ebo);
-            const oldSize = state.gl.getBufferParameter(state.gl.ELEMENT_ARRAY_BUFFER, state.gl.BUFFER_SIZE) / 4;
-            if (visitedIdxs.length != oldSize) {
+            if (visitedIdxs.length != visited_index_ebo_length) {
                 state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(visitedIdxs), state.gl.STATIC_DRAW);
+                visited_index_ebo_length = visitedIdxs.length;
             }
-            const newSize = state.gl.getBufferParameter(state.gl.ELEMENT_ARRAY_BUFFER, state.gl.BUFFER_SIZE) / 4;
-            state.gl.drawElements(state.gl.LINES, newSize, state.gl.UNSIGNED_INT, 0);
+            state.gl.drawElements(state.gl.LINES, visited_index_ebo_length, state.gl.UNSIGNED_INT, 0);
         }
         { // Path highlighting
             // TODO: move this outside of the drawing loop
@@ -299,15 +301,14 @@ window.addEventListener('load', () => __awaiter(void 0, void 0, void 0, function
                 lines.push(...line);
             }
             state.gl.bindBuffer(state.gl.ARRAY_BUFFER, path_buffer_vbo);
-            const oldSize = state.gl.getBufferParameter(state.gl.ARRAY_BUFFER, state.gl.BUFFER_SIZE) / 4;
-            if (lines.length != oldSize) { // TODO: Doesn't re-render on scaling
+            if (lines.length != path_buffer_vbo_length) { // TODO: Doesn't re-render on scaling
                 state.gl.bufferData(state.gl.ARRAY_BUFFER, new Float32Array(lines), state.gl.STATIC_DRAW);
+                path_buffer_vbo_length = lines.length;
             }
-            const newSize = state.gl.getBufferParameter(state.gl.ARRAY_BUFFER, state.gl.BUFFER_SIZE) / 4;
             const COMPONENTS_PER_ELEMENT = 2;
             state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_ELEMENT, state.gl.FLOAT, false, 0, 0);
             state.gl.uniform4fv(state.u_color_location, new Matrix(1, 4, [1, 1, 0, 1]).data);
-            state.gl.drawArrays(state.gl.TRIANGLE_STRIP, 0, newSize / COMPONENTS_PER_ELEMENT);
+            state.gl.drawArrays(state.gl.TRIANGLE_STRIP, 0, path_buffer_vbo_length / COMPONENTS_PER_ELEMENT);
         }
     };
     // Drawing Loop
