@@ -197,7 +197,7 @@ window.addEventListener('load', async () => {
                     .then((path: any) => {
                         if (path) {
                             console.log(path);
-                            state.path = path.map((x: any) => Number(x));
+                            state.path = path.map((x: any) => x);
                         }
                     })
                 } 
