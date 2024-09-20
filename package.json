@@ -4,9 +4,9 @@
   "main": "index.js",
   "license": "MIT",
   "scripts": {
-    "build": "webpack --config webpack.config.js",
+    "build": "webpack --config webpack.config.js --mode production",
     "watch": "tsc --watch",
-    "start": "webpack serve --config webpack.config.js"
+    "start": "webpack serve --config webpack.config.js --mode development"
   },
   "devDependencies": {
     "copy-webpack-plugin": "^12.0.2",

@@ -15,7 +15,7 @@ export function worker(cb: (data: any) => void): Promise<AsyncWorkerInstance> {
     let idPromises: Record<any, any> = {};
 
     return new Promise((resolve, reject) => {
-        const worker = new Worker('/graph-worker.js', {type: 'module'});
+        const worker = new Worker('./graph-worker.js', {type: 'module'});
         worker.postMessage({
             eventType: "INITIALISE" 
         });

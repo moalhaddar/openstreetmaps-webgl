@@ -93,7 +93,7 @@ window.addEventListener("load", async () => {
     })
 
     setLoadingText("Processing OSM PBF data");
-    const osmContext = await initOSM('/assets/kuwait.pbf');
+    const osmContext = await initOSM('assets/kuwait.pbf');
     // TODO: https://wiki.openstreetmap.org/wiki/Key:highway
     setLoadingText("Extracting highway subgraphs");
     const motorways = getSubgraphFromWayWithTag("highway", ["motorway", "motorway_link"], osmContext);
