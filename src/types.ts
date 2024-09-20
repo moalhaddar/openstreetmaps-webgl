@@ -1,100 +1,64 @@
-import BucketMap from "./bucket.js";
-import { workerInstance } from "./graph-worker.js";
-import { Matrix } from "./matrix.js";
+import { Vector2 } from "./vector2"
+
+export type GLContext = {
+    gl: WebGL2RenderingContext,
+    uniformColorShader: {
+        program: WebGLProgram;
+        uniforms: Record<"u_color" | "u_matrix", WebGLUniformLocation | null>;
+        attributes: Record<"a_position", number>;
+    }
+    attributeColorShader: {
+        program: WebGLProgram;
+        uniforms: Record<"u_matrix", WebGLUniformLocation | null>;
+        attributes: Record<"a_position" | "a_color", number>;
+    }
+}
+
+export type OSMContext = {
+    nodes: OSMNode[],
+    worldNodes: WorldNode[]
+    ways: OSMWay[],
+    nodesIdIdxMap: Map<string, number>
+    nodesIdWayIdxsMap: Map<string, number[]>
+    metadata: Metadata
+}
 
 export type Metadata = {
     minLat: number,
     maxLat: number,
     minLon: number,
     maxLon: number,
+    lonRange: number,
+    latRange: number,
     nodesCount: number
 }
 
-export type OSMNode = {
-    id: number;
+type Brand<K, T> = T & { __brand: K }
+
+export type OSMNode = Brand<"OSM_NODE", {
+    id: string;
     lat: number;
     lon: number;
-}
+}>
+
+export type WorldNode = Brand<"WORLD_NODE", {
+    id: string;
+    position: Vector2; // x = lon, y = lat
+}>
+
+export type WebMercatorNode = Brand<"WEB_MERCATOR_NODE", {
+    id: string;
+    position: Vector2; // x = lon, y = lat
+}>
 
 export type OSMWay = {
-    node_ids: number[]
-    tags: Map<string, string>
+    node_ids: string[]
+    tags: Record<string, string>
 }
 
-export type State = {
-    // Contexts
-    canvas: HTMLCanvasElement,
-    gl: WebGL2RenderingContext,
-
-    // Shader
-    program: WebGLProgram,
-    position_location: number,
-    u_matrix_location: WebGLUniformLocation,
-    u_color_location: WebGLUniformLocation,
-    mat: Matrix;
-
-    // transformations
-    anchor: [number, number] | undefined
-    translationOffset: [number, number]
-    scale: number
-    targetScale: number;
-    rotationAngleRad: number;
-    isCtrlPressed: boolean;
-    
-
-    // frametime
-    previous_render_timestamp: number;
-
-    // mouse
-    mouseWorldPosition: [number, number] | undefined;
-    mouseClipPosition: [number, number] | undefined;
-
-    // Buckets
-    bucketMap: BucketMap;
-    activeBucket: BucketEntry[];
-
-    // Path finding
-    startNode: OSMNode | undefined;
-    startNodeCurrent: Matrix | undefined;
-    startNodeTarget: Matrix | undefined;
-    endNodeCurrent: Matrix | undefined;
-    endNodeTarget: Matrix | undefined;
-    endNode: OSMNode | undefined;
-    graph: Map<number, Map<number, number>>;
-    path: number[]
-    visited: number[];
-
-    timeouts: number[];
-
-    // OSM processed data
-    xmlDoc: Document;
-    nodes: OSMNode[];
-    nodeIdIdxMap: Map<number, number>; // state.nodes[idx]
-    normalizedNodesLonLatArray: number[] // [lon, lat, lon, lat ...]
+export type OSMSubgraph = {
     ways: OSMWay[];
-    highwayNodes: OSMNode[];
-    highwayNodesIdxs: number[] // state.nodes[idx]
-    buildingNodes: OSMNode[];
-    buildingNodesIdxs: number[] // state.nodes[idx]
-    metadata: Metadata;
-}
-
-export type BucketEntry = {
-    node: OSMNode
-    glIndex: number
-}
-
-export enum MouseButton {
-    Left = 0,
-    Middle = 1,
-    Right = 2
-}
-
-export type WorkerEvent = {
-    eventId: number;
-    eventType: 'INITIALISE' | 'CALL' | 'RESULT';
-    eventData: {
-        method: keyof typeof workerInstance
-        arguments: any[]
-    }
-}
+    nodes: OSMNode[];
+    worldNodes: WorldNode[]
+    idxs: number[];
+};

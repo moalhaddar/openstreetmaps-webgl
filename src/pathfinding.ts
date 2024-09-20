@@ -1,11 +1,11 @@
-import FastPriorityQueue from "./external/priorityqueue.js";
-import { state } from "./state.js";
-import { OSMNode, OSMWay } from "./types.js";
+import FastPriorityQueue from "./external/priorityqueue";
+import { OSMNode, OSMWay } from "./types";
 
-export function findPath(previous: Record<string, string | undefined>, endNode: OSMNode, nodeIdIdxMap: Map<number, number>) {
-    if (endNode === undefined) return;
+export let graph: Map<number, Map<number, number>>;
+
+export function findPath(previous: Record<number, number | undefined>, endNodeIdx: number) {
     const path = [];
-    let u: string | undefined = String(nodeIdIdxMap.get(endNode.id));
+    let u: number | undefined = endNodeIdx;
     if (u === undefined) throw new Error(`Cannot find target node in the reverse lookup ${1}`);
     while (u !== undefined) {
         path.unshift(u);
@@ -15,19 +15,16 @@ export function findPath(previous: Record<string, string | undefined>, endNode: 
     return path;
 }
 
-export function dijkstra(startNode: OSMNode, nodeIdIdxMap: Map<number, number>) {
-    if (!startNode) return;
+export function dijkstra(startNodeIndex: number) {
+    console.log("Starting dijkstra")
     let distances: Record<number, number> = {};
     let previous: Record<number, number | undefined> = {};
     const visited = new Set();
-    let nodes = state.graph.keys();
+    let nodes = graph.keys();
     for (let node of nodes) {
         distances[node] = Infinity;
         previous[node] = undefined;
     }
-
-    const startNodeIndex = nodeIdIdxMap.get(startNode.id);
-    if (!startNodeIndex) throw new Error("Start node not found in reverse lookup");
 
     const pq = new FastPriorityQueue<{ distance: number, idx: number }>((a, b) => {
         return a.distance < b.distance;
@@ -43,18 +40,11 @@ export function dijkstra(startNode: OSMNode, nodeIdIdxMap: Map<number, number>) 
         if (distances[u] === Infinity) break;
         visited.add(u);
 
-        for (const [v] of state.graph.get(u)!) {
+        for (const [v] of graph.get(u)!) {
             updates.push(v, u);
-            // self.postMessage({
-            //     eventType: "GRAPH_VISITED_UPDATE",
-            //     eventData: {
-            //         parentNode: v,
-            //         node: u
-            //     },
-            // });
 
             if (!visited.has(v)) {
-                const w = state.graph.get(u)!.get(v)!;
+                const w = graph.get(u)!.get(v)!;
                 const newDistance = distances[u] + w;
                 if (distances[v] > newDistance) {
                     distances[v] = newDistance;
@@ -63,7 +53,7 @@ export function dijkstra(startNode: OSMNode, nodeIdIdxMap: Map<number, number>) 
                 }
             }
         }
-        if (updates.length >= 2000) {
+        if (updates.length >= 100) {
             self.postMessage({
                 eventType: "GRAPH_VISITED_UPDATE_BULK",
                 eventData: updates,
@@ -72,9 +62,15 @@ export function dijkstra(startNode: OSMNode, nodeIdIdxMap: Map<number, number>) 
         }
     }
 
+    self.postMessage({
+        eventType: "GRAPH_VISITED_UPDATE_BULK",
+        eventData: updates,
+    });
+    updates.length = 0;
+
     console.timeEnd("dijkstra time:")
 
-    return { distances, previous };
+    return { previous };
 }
 
 /**
@@ -101,14 +97,13 @@ export function haversine(lon1: number, lat1: number, lon2: number, lat2: number
     return d;
 }
 
-export function buildGraph(ways: OSMWay[], nodes: OSMNode[], nodeIdIdxMap: Map<number, number>) {
-    const graph: Map<number, Map<number, number>> = new Map();
+export function buildGraph(ways: OSMWay[], nodes: OSMNode[], nodeIdIdxMap: Map<string, number>) {
+    const g: Map<number, Map<number, number>> = new Map();
     let edges = 0;
     for (let i = 0; i < ways.length; i++) {
         const way = ways[i];
-        if (way.tags.get("highway") == undefined) continue;
         let oneWay = false;
-        if (way.tags.get("oneway") === "yes" || way.tags.get("junction") === "roundabout") {
+        if (way.tags["oneway"] === "yes" || way.tags["junction"] === "roundabout") {
             oneWay = true;
         }
 
@@ -132,25 +127,24 @@ export function buildGraph(ways: OSMWay[], nodes: OSMNode[], nodeIdIdxMap: Map<n
                 }
 
                 const distance = haversine(start.lon, start.lat, end.lon, end.lat);
-                if (graph.get(startIndex) === undefined) {
-                    graph.set(startIndex, new Map());
+                if (g.get(startIndex) === undefined) {
+                    g.set(startIndex, new Map());
                 }
-                if (graph.get(endIndex) === undefined) {
-                    graph.set(endIndex, new Map());
+                if (g.get(endIndex) === undefined) {
+                    g.set(endIndex, new Map());
                 }
                 if (oneWay) {
                     edges++;
-                    graph.get(startIndex)!.set(endIndex, distance);
+                    g.get(startIndex)!.set(endIndex, distance);
                 } else {
                     edges+=2;
-                    graph.get(startIndex)!.set(endIndex, distance);
-                    graph.get(endIndex)!.set(startIndex, distance);
+                    g.get(startIndex)!.set(endIndex, distance);
+                    g.get(endIndex)!.set(startIndex, distance);
                 }
             }
         }
     }
 
-    console.log(`Edges count: ${edges}`);
-
-    state.graph = graph;
+    console.log(`Built graph. Edges count: ${edges}`);
+    graph = g;
 }

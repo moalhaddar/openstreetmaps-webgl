@@ -18,7 +18,7 @@ class Matrix {
     }
 
     at(row: number, column :number): number {
-        return this.rows * row + column;
+        return (this.cols * row) + column;
     }
 
     x(): number {
@@ -87,17 +87,18 @@ class Matrix {
         return result;
     }
 
-    multiply(mat: Matrix): Matrix {
-        if (this.cols !== mat.rows) {
-            throw new Error(`Cannot multiply ${this.rows}x${this.cols} by ${mat.rows}x${mat.cols}`);
+    multiply(right: Matrix): Matrix {
+        const left = this;
+        if (left.cols !== right.rows) {
+            throw new Error(`Cannot multiply ${left.rows}x${left.cols} by ${right.rows}x${right.cols}`);
         }
 
-        const result = new Matrix(this.rows, mat.cols);
-        let n = this.cols || mat.rows;
+        const result = new Matrix(left.rows, right.cols);
+        let n = left.cols || right.rows;
         for (let i = 0; i < result.rows; i++) {
             for (let j = 0; j < result.cols; j++) {
                 for (let k = 0; k < n; k++) {
-                    result.data[this.at(i,j)] += this.data[this.at(i, k)] * mat.data[this.at(k, j)];
+                    result.data[result.at(i,j)] += left.data[left.at(i, k)] * right.data[right.at(k, j)];
                 }
             }
         }
@@ -106,21 +107,21 @@ class Matrix {
     }
 
 
-    scale(sx: number, sy: number): Matrix {
+    static scale(sx: number, sy: number): Matrix {
         const scaleMat = new Matrix(3, 3, [
             sx, 0,  0,
             0,  sy, 0,
-            0,  0,  0
+            0,  0,  1
         ])
 
-        return this.multiply(scaleMat);
+        return scaleMat;
     }
 
     /**
      * Rotates counter-clockwise
      * @param angleRadian The angle
      */
-    rotate(angleRadian: number): Matrix {
+    static rotate(angleRadian: number): Matrix {
         const cos = Math.cos(angleRadian);
         const sin = Math.sin(angleRadian);
         const rotateMat = new Matrix(3, 3, [
@@ -129,18 +130,81 @@ class Matrix {
             0   , 0  , 1
         ])
 
-        return this.multiply(rotateMat);
+        return rotateMat;
     }
 
-    translate(dx: number, dy: number): Matrix {
+    static translate(dx: number, dy: number): Matrix {
         const translationMat = new Matrix(3, 3, [
             1,  0,  0,
             0,  1,  0,
-            dx, dy, 0
+            dx, dy, 1
         ])
 
-        return this.multiply(translationMat);
+        return translationMat;
     }
+
+    static projection(clientWidth: number, clientHeight: number): Matrix {
+        const zeroToOne = Matrix.scale(1 / clientWidth, 1 / clientHeight);
+        const zeroToTwo = zeroToOne.multiply(Matrix.scale(2, 2));
+        const minusOneToOne = zeroToTwo.multiply(Matrix.translate(-1, -1));
+        return minusOneToOne;
+    }
+
+    determinant(): number {
+        if (this.rows !== 3 || this.cols !== 3) {
+            throw new Error("Determinant calculation is only implemented for 3x3 matrices");
+        }
+
+        const [a, b, c, d, e, f, g, h, i] = this.data;
+
+        return a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+    }
+
+    adjugate(): Matrix {
+        if (this.rows !== 3 || this.cols !== 3) {
+            throw new Error("Adjugate calculation is only implemented for 3x3 matrices");
+        }
+
+        const [
+            a, b, c, 
+            d, e, f, 
+            g, h, i
+        ] = this.data;
+
+        return new Matrix(3, 3, [
+            (e * i - f * h), -(b * i - c * h), (b * f - c * e),
+            -(d * i - f * g), (a * i - c * g), -(a * f - c * d),
+            (d * h - e * g), -(a * h - b * g), (a * e - b * d)
+        ]);
+    }
+
+    inverse(): Matrix {
+        if (this.rows !== 3 || this.cols !== 3) {
+            throw new Error("Inverse calculation is only implemented for 3x3 matrices");
+        }
+
+        const det = this.determinant();
+
+        if (Number.isNaN(det)) {
+            throw new Error("Matrix is not invertible (determinant is close to zero)");
+        }
+
+        const adj = this.adjugate();
+        return adj.scalar(1 / det);
+    }
+
+    transpose(): Matrix {
+        const result = new Matrix(this.cols, this.rows);
+        
+        for (let i = 0; i < this.rows; i++) {
+            for (let j = 0; j < this.cols; j++) {
+                result.data[result.at(j, i)] = this.data[this.at(i, j)];
+            }
+        }
+        
+        return result;
+    }
+
 
     static identity(): Matrix {
         return new Matrix(3, 3, [
@@ -148,6 +212,18 @@ class Matrix {
             0, 1, 0,
             0, 0, 1
         ])
+    }
+
+    toString(): string {
+        let result = "";
+
+        for (let i = 0; i < this.rows * this.cols; i++) {
+            result += `${this.data[i]}  `;
+
+            if ((i + 1) % 3 === 0 && i !== 0) result += '\n';
+        }
+
+        return result;
     }
    
 }

@@ -1,0 +1,21 @@
+import { Color } from "./color";
+
+export const BUILDINGS_COLOR = new Color(0.5, 0.35, 0.61, 1);
+export const MOTORWAYS_COLOR = new Color(0.914, 0.565, 0.627, 1);
+export const TRUNKS_COLOR = new Color(0.988, 0.753, 0.675, 1);
+export const PRIMARIES_COLOR = new Color(0.992, 0.843, 0.631, 1);
+export const SECONDARIES_COLOR = new Color(0.965, 0.98, 0.733, 1);
+export const TERTIARIES_COLOR = new Color(1, 1, 1, 1);
+export const UNCLASSIFIEDS_COLOR = new Color(1, 1, 1, 1);
+export const RESIDENTIALS_COLOR = new Color(1, 1, 1, 1);
+export const NODES_COLOR = new Color(0, 1, 0, 1);
+export const QUADTREE_POINT_COLOR = new Color(1, 0, 0, 1);
+export const HIGHLIGHTED_WAYS_COLOR = new Color(1, 0, 0, 1);
+export const VISITED_NODE_COLOR = new Color(1, 0.5, 0, 1);
+export const SHORTEST_PATH_COLOR = new Color(1, 1 ,0, 1);
+export const X_AXIS_COLOR = new Color(1, 0, 0, 1);
+export const Y_AXIS_COLOR = new Color(0, 1, 0, 1);
+export const WORLD_OUTLINE_COLOR = new Color(1, 1, 0, 1);
+export const CAMERA_TARGET_COLOR = new Color(1, 1, 0, 1);
+export const START_NODE_COLOR = new Color(0, 1, 0, 1);
+export const END_NODE_COLOR = new Color(1, 0, 0, 1);

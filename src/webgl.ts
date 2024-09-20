@@ -1,40 +1,132 @@
-import { Matrix } from "./matrix.js";
-import { state } from "./state.js";
+import { Matrix } from "./matrix";
+import { GLContext } from "./types";
+import { Vector2 } from "./vector2";
+ 
+type BufferType = "vbo" | "ebo"
 
-function createShader(type: 'vertex' | 'fragment', source: string): WebGLShader {
-    const shader = state.gl.createShader(type === 'vertex' ? state.gl.VERTEX_SHADER : state.gl.FRAGMENT_SHADER);
-    if (!shader) {
-        throw new Error("Cannot create shader");
-    }
-    state.gl.shaderSource(shader, source);
-    state.gl.compileShader(shader);
-    if (!state.gl.getShaderParameter(shader, state.gl.COMPILE_STATUS)) {
-        console.error(state.gl.getShaderInfoLog(shader));
-        state.gl.deleteShader(shader);
-        throw new Error("Cannot compile shader");
-    }
-
-    return shader;
+export type Camera = {
+    offset: Vector2;
+    target: Vector2;
+    rotation: number;
+    zoom: number;
 }
 
-function createProgram(vertexShader: WebGLShader, fragmentShader: WebGLShader): WebGLProgram {
-    const program = state.gl.createProgram();
-    if (!program) {
-        throw new Error("Cannot create the program");
-    }
-    state.gl.attachShader(program, vertexShader);
-    state.gl.attachShader(program, fragmentShader);
-    state.gl.linkProgram(program);
-    if (!state.gl.getProgramParameter(program, state.gl.LINK_STATUS)) {
-        console.error(state.gl.getProgramInfoLog(program))
-        state.gl.deleteProgram(program);
-        throw new Error("Cannot create program");
+export function initBuffer(glContext: GLContext, data: ArrayBuffer, type: BufferType) {
+    const { gl } = glContext;
+    const buffer = gl.createBuffer()
+
+    const BUFFER_TYPE_MAP: Record<BufferType, number> = {
+        vbo: gl.ARRAY_BUFFER,
+        ebo: gl.ELEMENT_ARRAY_BUFFER
     }
 
-    return program;
+    const glBufferType = BUFFER_TYPE_MAP[type];
+    
+    gl.bindBuffer(glBufferType, buffer);
+    gl.bufferData(glBufferType, data, gl.STATIC_DRAW);
+
+    return buffer;
 }
 
-function loadSources(vertexId: string, fragmentId: string): [string, string] {
+type VBO = {
+    buffer: WebGLBuffer | null;
+    vertexPtr: {
+        location: number,
+        components: 1 | 2 | 3 | 4,
+        type: number,
+    }
+}
+
+export function initVao(args: {
+    glContext: GLContext, 
+    enableLocations: number[], 
+    vbos: VBO[], 
+    ebo: WebGLBuffer | null
+}) {
+    const {ebo, enableLocations, vbos, glContext} = args;
+    const vao = glContext.gl.createVertexArray();
+    glContext.gl.bindVertexArray(vao);
+    for (let i = 0; i < enableLocations.length; i++) {
+        glContext.gl.enableVertexAttribArray(enableLocations[i]);
+    }
+    for (let i = 0; i < vbos.length; i++) {
+        const {buffer, vertexPtr} = vbos[i];
+        glContext.gl.bindBuffer(glContext.gl.ARRAY_BUFFER, buffer);
+        glContext.gl.vertexAttribPointer(
+            vertexPtr.location,
+            vertexPtr.components, 
+            vertexPtr.type, 
+            false, 
+            0, 
+            0
+        )
+    }
+
+    if (ebo) {
+        glContext.gl.bindBuffer(glContext.gl.ELEMENT_ARRAY_BUFFER, ebo);    
+    }
+
+    glContext.gl.bindVertexArray(null);
+
+    return vao;
+}
+
+export function initCanvas(id: string) {
+    const canvas = document.getElementById(id) as HTMLCanvasElement;
+    canvas.width = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
+
+    return canvas;
+}
+
+export function initGl(canvas: HTMLCanvasElement) {
+    const gl = canvas.getContext('webgl2', {
+        premultipliedAlpha: false,
+    });
+    if (!gl) {
+        throw new Error("Cannot create webgl context");
+    }
+
+    return gl;
+}
+
+
+export function initShader<U extends string, A extends string, T extends 'uniform' | 'attribute', R = T extends 'uniform' ? WebGLUniformLocation : number>(args: {
+    gl: WebGL2RenderingContext, 
+    vertexShaderId: string, 
+    fragmentShaderId: string,
+    uniforms: Array<U>,
+    attributes: Array<A>,
+}
+) {
+    const {attributes, fragmentShaderId, gl, uniforms, vertexShaderId} = args;
+    const [vertex_source, fragment_source] = loadSources(vertexShaderId, fragmentShaderId);
+    const vertex_shader = createShader(gl, 'vertex', vertex_source);
+    const fragment_shader = createShader(gl, 'fragment', fragment_source);
+
+    const program = createProgram(gl, vertex_shader, fragment_shader)
+    const _uniforms = {} as Record<U, WebGLUniformLocation | null>;
+    const _attributes = {} as Record<A, number>;
+    for (let i = 0 ; i < uniforms.length; i++) {
+        const name = uniforms[i];
+        const location = gl.getUniformLocation(program, name);
+            _uniforms[name] = location;;
+    }
+
+    for (let i = 0 ; i < attributes.length; i++) {
+        const name = attributes[i];
+        const location = gl.getAttribLocation(program, name);
+            _attributes[name] = location;;
+    }
+
+    return {
+        program,
+        uniforms: _uniforms,
+        attributes: _attributes
+    };
+}
+
+export function loadSources(vertexId: string, fragmentId: string): [string, string] {
     const vertexSource = document.querySelector(vertexId)?.textContent;
     const fragmentSource = document.querySelector(fragmentId)?.textContent;
     if (typeof vertexSource !== 'string') {
@@ -48,91 +140,86 @@ function loadSources(vertexId: string, fragmentId: string): [string, string] {
     return [vertexSource, fragmentSource];
 }
 
-export function initShader(vertexShaderIdL: string, fragmentShaderId: string) {
-    const [vertex_source, fragment_source] = loadSources(vertexShaderIdL, fragmentShaderId);
-    const vertex_shader = createShader('vertex', vertex_source);
-    const fragment_shader = createShader('fragment', fragment_source);
-
-    state.program = createProgram(vertex_shader, fragment_shader)
-    state.gl.useProgram(state.program);
-
-    state.position_location = state.gl.getAttribLocation(state.program, 'a_position');
-    state.gl.enableVertexAttribArray(state.position_location);
-    state.u_color_location = state.gl.getUniformLocation(state.program, 'u_color') as WebGLUniformLocation;
-    state.u_matrix_location = state.gl.getUniformLocation(state.program, 'u_matrix') as WebGLUniformLocation;
-}
-
-export function initGl() {
-    const gl = state.canvas.getContext('webgl2');
-    if (!gl) {
-        throw new Error("Cannot create webgl context");
+export function createShader(gl: WebGL2RenderingContext, type: 'vertex' | 'fragment', source: string): WebGLShader {
+    const shader = gl.createShader(type === 'vertex' ? gl.VERTEX_SHADER : gl.FRAGMENT_SHADER);
+    if (!shader) {
+        throw new Error("Cannot create shader");
+    }
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        console.error(gl.getShaderInfoLog(shader));
+        gl.deleteShader(shader);
+        throw new Error("Cannot compile shader");
     }
 
-    state.gl = gl;
+    return shader;
 }
 
-export function drawLine(x1: number, y1: number, x2: number, y2: number) {
-    const vbo = state.gl.createBuffer();
-    state.gl.bindBuffer(state.gl.ARRAY_BUFFER, vbo);
-    state.gl.bufferData(state.gl.ARRAY_BUFFER, new Float32Array([x1, y1, x2, y2]), state.gl.STATIC_DRAW);
-    const COMPONENTS_PER_AXIS = 2;
-    state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_AXIS, state.gl.FLOAT, false, 0, 0);
-    state.gl.uniform4fv(state.u_color_location, [1, 0, 0, 1]);
-    state.gl.drawArrays(state.gl.LINES, 0, 2);
-    state.gl.deleteBuffer(vbo);
-}
-
-export function drawCircle(cx: number, cy: number, r: number, color: [number, number, number]) {
-    const vbo = state.gl.createBuffer();
-    state.gl.bindBuffer(state.gl.ARRAY_BUFFER, vbo);
-    const RESOLUTION = 200;
-    const points = [cx, cy];
-    for (let i = 0; i <= RESOLUTION; i++) {
-        const x = r * Math.cos((i * Math.PI * 2) / RESOLUTION);
-        const y = r * Math.sin((i * Math.PI * 2) / RESOLUTION);
-        points.push(
-            points[0] + x,
-            points[1] + y
-        )
+export function createProgram(gl: WebGL2RenderingContext, vertexShader: WebGLShader, fragmentShader: WebGLShader): WebGLProgram {
+    const program = gl.createProgram();
+    if (!program) {
+        throw new Error("Cannot create the program");
     }
-    state.gl.bufferData(state.gl.ARRAY_BUFFER, new Float32Array(points), state.gl.STATIC_DRAW);
-    const COMPONENTS_PER_AXIS = 2;
-    state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_AXIS, state.gl.FLOAT, false, 0, 0);
-    state.gl.uniform4fv(state.u_color_location, [...color, 1]);
-    state.gl.drawArrays(state.gl.TRIANGLE_FAN, 0, points.length / 2);
-    state.gl.deleteBuffer(vbo);
+    gl.attachShader(program, vertexShader);
+    gl.attachShader(program, fragmentShader);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        console.error(gl.getProgramInfoLog(program))
+        gl.deleteProgram(program);
+        throw new Error("Cannot create program");
+    }
+
+    return program;
 }
+
+// (Bottom, left) => (top, right)
+export function getMouseCanvasPosition(e: MouseEvent, canvas: HTMLCanvasElement): Vector2 {
+    const rect = canvas.getBoundingClientRect();
+
+    return new Vector2(e.clientX - rect.left, (canvas.clientHeight - (e.clientY - rect.top)));
+}
+
+export function getScreenToWorld(screenPosition: Vector2, camera: Camera) {
+    const inverse = getCameraMatrix(camera).inverse().transpose();
+
+    const x = screenPosition.x;
+    const y = screenPosition.y;
+
+    const result = new Vector2(0, 0);
+    result.x = (inverse.data[0] * x) + (inverse.data[1] * y) + inverse.data[2];
+    result.y = (inverse.data[3] * x) + (inverse.data[4] * y) + inverse.data[5];
+    return result;
+}
+
 /**
- * Ported from raylib.js
+ * Credit to raylib,  rcore.c
  */
-export function prepareDrawLineExBufferData(startPos: Matrix, endPos: Matrix, thickness: number) {
-    const delta = new Matrix(1, 2, [endPos.x() - startPos.x(), endPos.y() - startPos.y()])
-    const length = Math.sqrt(delta.x()*delta.x() + delta.y()*delta.y());
-    if ((length > 0) && (thickness > 0)) {
-        const scale = thickness / (2 * length);
-        const radius = new Matrix(1, 2, [-scale * delta.y(), scale * delta.x()])
-        
-        const strip = [
-            startPos.x() - radius.x(), startPos.y() - radius.y(),
-            startPos.x() + radius.x(), startPos.y() + radius.y(),
-            endPos.x() - radius.x(), endPos.y() - radius.y(),
-            endPos.x() + radius.x(), endPos.y() + radius.y()
-        ]
+export function getCameraMatrix(camera: Camera): Matrix {
+    const O = Matrix.translate(-camera.target.x, -camera.target.y)
+    const R = Matrix.rotate(camera.rotation);
+    const S = Matrix.scale(camera.zoom, camera.zoom);
+    const T = Matrix.translate(camera.offset.x, camera.offset.y);
+    return O.multiply(S).multiply(R).multiply(T);
+}
 
-        return strip;
-    } else {
-        return [];
+/**
+ * Credit: https://webglfundamentals.org/webgl/lessons/webgl-resizing-the-canvas.html 
+ */
+export function resizeCanvasToDisplaySize(canvas: HTMLCanvasElement) {
+    // Lookup the size the browser is displaying the canvas in CSS pixels.
+    const displayWidth  = canvas.clientWidth;
+    const displayHeight = canvas.clientHeight;
+   
+    // Check if the canvas is not the same size.
+    const needResize = canvas.width  !== displayWidth ||
+                       canvas.height !== displayHeight;
+   
+    if (needResize) {
+      // Make the canvas the same size
+      canvas.width  = displayWidth;
+      canvas.height = displayHeight;
     }
-}
-
-export function drawLineEx(startPos: Matrix, endPos: Matrix, thickness: number, color: Matrix) {
-    const data = prepareDrawLineExBufferData(startPos, endPos, thickness);
-    const vbo = state.gl.createBuffer();
-    state.gl.bindBuffer(state.gl.ARRAY_BUFFER, vbo);
-    state.gl.bufferData(state.gl.ARRAY_BUFFER, new Float32Array(data), state.gl.STATIC_DRAW);
-    const COMPONENTS_PER_ELEMENT = 2;
-    state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_ELEMENT, state.gl.FLOAT, false, 0, 0);
-    state.gl.uniform4fv(state.u_color_location, color.data);
-    state.gl.drawArrays(state.gl.TRIANGLE_STRIP, 0, 4);
-    state.gl.deleteBuffer(vbo);
-}
+   
+    return needResize;
+  }

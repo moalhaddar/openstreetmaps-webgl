@@ -1,421 +1,553 @@
-import BucketMap from "./bucket.js";
-import { Matrix } from "./matrix.js"
-import { initBuildingNodes, initHighwayNodes, initMetadata, initNodesAndReverseLookup, initWays, normalizeNode, initFlatNodeData, parseOSMXML } from "./parser.js";
-import { drawCircle, drawLine, initGl, initShader, prepareDrawLineExBufferData } from "./webgl.js";
-import { state } from "./state.js";
-import { MouseButton } from "./types.js";
-import { initCanvas } from "./canvas.js";
-import { worker } from "./worker-manager.js";
-import { buildGraph } from "./pathfinding.js";
+import { drawCircle, drawLine, prepareDrawLineExBufferData } from "./draw";
+import { Matrix } from "./matrix";
+import { getSubgraphFromWayWithTag, initFlatNodeData, initOSM, WORLD_HEIGHT, WORLD_WIDTH } from "./osm";
+import { buildGraph, findPath } from "./pathfinding";
+import { WorldQuadTree } from "./quadtree";
+import { GLContext, WorldNode } from "./types";
+import { Vector2 } from "./vector2";
+import './external/osm-read-pbf'
+import { 
+    Camera, 
+    getCameraMatrix,
+    getMouseCanvasPosition,
+    getScreenToWorld,
+    initBuffer,
+    initCanvas,
+    initGl,
+    initShader,
+    initVao,
+    resizeCanvasToDisplaySize
+} from "./webgl";
+import { worker } from "./worker-manager";
+import { Color } from "./color";
+import { 
+    BUILDINGS_COLOR,
+    CAMERA_TARGET_COLOR,
+    END_NODE_COLOR,
+    HIGHLIGHTED_WAYS_COLOR,
+    MOTORWAYS_COLOR,
+    NODES_COLOR,
+    PRIMARIES_COLOR,
+    QUADTREE_POINT_COLOR,
+    RESIDENTIALS_COLOR,
+    SECONDARIES_COLOR,
+    SHORTEST_PATH_COLOR,
+    START_NODE_COLOR,
+    TERTIARIES_COLOR,
+    TRUNKS_COLOR,
+    UNCLASSIFIEDS_COLOR,
+    VISITED_NODE_COLOR,
+    WORLD_OUTLINE_COLOR,
+    X_AXIS_COLOR,
+    Y_AXIS_COLOR 
+} from "./constants";
 
 
-function getMouseCanvasPosition(e: MouseEvent): { x: number, y: number } {
-    const rect = state.canvas.getBoundingClientRect();
-    return {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
+declare global {
+    interface Window { 
+        pbfParser: any; 
     }
 }
 
-function getMouseClipPosition(e: MouseEvent): { x: number, y: number } {
-    const { x, y } = getMouseCanvasPosition(e);
-    // [0..1]
-    let normalizedCanvasX = x / state.canvas.width;
-    let normalizedCanvasY = y / state.canvas.height;
+function setLoadingText(text: string) {
+    const loadingElement = document.getElementById("loading")!;
+    loadingElement.innerHTML = text;
+}
 
-    // [0, 2]
-    normalizedCanvasX *= 2;
-    normalizedCanvasY *= 2;
+function hideLoading() {
+    document.getElementById("loading")!.style.display = 'none';
+}
 
-    // [-1, 1]
-    normalizedCanvasX -= 1;
-    normalizedCanvasY -= 1;
+window.addEventListener("load", async () => {
+    // Setup
+    setLoadingText("Initializing canvas");
+    const canvas = initCanvas("canvas");
+    const gl = initGl(canvas);
+    setLoadingText("Initializing Shaders");
+    const uniformColorShader = initShader({
+        gl, 
+        vertexShaderId: '#uniform-color-vertex-shader', 
+        fragmentShaderId: '#uniform-color-fragment-shader',
+        uniforms: ['u_color', 'u_matrix'],
+        attributes: ['a_position']
+    });
 
-    return {
-        x: normalizedCanvasX,
-        y: normalizedCanvasY * -1 // We invert the y axis
+    const attributeColorShader = initShader({
+        gl, 
+        vertexShaderId: '#attribute-color-vertex-shader', 
+        fragmentShaderId: '#attribute-color-fragment-shader',
+        uniforms: ['u_matrix'],
+        attributes: ['a_position', 'a_color']
+    });
+
+    gl.useProgram(uniformColorShader.program);
+    const glContext: GLContext = {
+        gl, uniformColorShader, attributeColorShader
     }
-}
-
-function getMouseWorldPosition (mouseClipPosition: [number, number], scale: number, offset: [number, number]) {
-    return [
-        ((mouseClipPosition[0] / scale) - offset[0]),
-        ((mouseClipPosition[1] / scale) - offset[1]),
-    ]
-}
-
-window.addEventListener('load', async () => {
-    // Initial state
-    state.translationOffset = [-0.5, -0.5];
-    state.anchor = undefined;
-    state.scale = 100;
-    state.rotationAngleRad = 0;
-    state.targetScale = 1;
-    state.previous_render_timestamp = 0;
-    state.mouseClipPosition = undefined;
-    state.mouseWorldPosition = undefined;
-    state.activeBucket = [];
-    state.startNode = undefined;
-    state.timeouts = [];
-    state.graph = new Map();
-    state.path = [];
-    state.visited = [];
-    state.startNodeTarget = undefined;
-    state.startNodeCurrent = undefined;
-    state.endNodeTarget = undefined;
-    state.endNodeCurrent = undefined;
-
-    const proxy = await worker();
-
-
-    await parseOSMXML();
-    initNodesAndReverseLookup();
-    initWays();
-    initMetadata();
-    initHighwayNodes();
-    initBuildingNodes();
-    initFlatNodeData()
-    BucketMap.init();
-    state.bucketMap.populate(state.highwayNodes);
-
-    initCanvas();
-    initGl();
-    initShader('#vertex-shader', '#fragment-shader');
-
-    // Worker stuff
-    buildGraph(state.ways, state.nodes, state.nodeIdIdxMap)
-    proxy.buildGraph(state.ways, state.nodes, state.nodeIdIdxMap)
-
-    const nodes_buffer = state.gl.createBuffer()
-    state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
-    state.gl.bufferData(state.gl.ARRAY_BUFFER, new Float32Array(state.normalizedNodesLonLatArray), state.gl.STATIC_DRAW);
-
-    const building_nodes_index_ebo = state.gl.createBuffer();
-    state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, building_nodes_index_ebo);
-    state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(state.buildingNodesIdxs), state.gl.STATIC_DRAW);
-
-    const highway_nodes_index_ebo = state.gl.createBuffer();
-    state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, highway_nodes_index_ebo);
-    state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(state.highwayNodesIdxs), state.gl.STATIC_DRAW);
-
-    const path_buffer_vbo = state.gl.createBuffer();
-    state.gl.bindBuffer(state.gl.ARRAY_BUFFER, path_buffer_vbo);
-    state.gl.bufferData(state.gl.ARRAY_BUFFER, new Uint32Array([]), state.gl.STATIC_DRAW);
-
-    const visited_index_ebo = state.gl.createBuffer();
-    state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, visited_index_ebo);
-    state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array([]), state.gl.STATIC_DRAW);
-
-    // Events
-    state.canvas.addEventListener('mousedown', (e) => {
-        const { x, y } = getMouseClipPosition(e);
-        state.anchor = [x, y]
-        if (state.activeBucket.length === 1) {
-            const timeoutId = setTimeout(() => {
-                if (e.button == MouseButton.Left) {
-                    state.startNode = normalizeNode(state.activeBucket[0].node)
-                    state.path = [];
-                    state.visited = [];
-                    const idx = state.activeBucket[0].glIndex;
-                    const lon = state.normalizedNodesLonLatArray[idx * 2];
-                    const lat = state.normalizedNodesLonLatArray[idx * 2 + 1];
-                    state.startNodeTarget = new Matrix(1, 2, [lon, lat]);
-                } else if (e.button == MouseButton.Right) {
-                    state.endNode = normalizeNode(state.activeBucket[0].node)
-                    state.path = [];
-                    state.visited = [];
-                    const idx = state.activeBucket[0].glIndex;
-                    const lon = state.normalizedNodesLonLatArray[idx * 2];
-                    const lat = state.normalizedNodesLonLatArray[idx * 2 + 1];
-                    state.endNodeTarget = new Matrix(1, 2, [lon, lat]);
-                } else if (e.button == MouseButton.Middle) {
-                    state.startNode = undefined;
-                    state.startNodeTarget = undefined;
-                    state.endNode = undefined;
-                    state.endNodeTarget = undefined;
-                    state.path = [];
-                    state.visited = [];
-                }
-            }, 200)
-            state.timeouts.push(timeoutId)
-        }
-    })
-
-    state.canvas.addEventListener('mouseup', () => {
-        if (state.anchor) {
-            state.anchor = undefined;
-        }
-    })
-
-    state.canvas.addEventListener('mousemove', (e) => {
-        state.timeouts.forEach(clearTimeout);
-        const { x, y } = getMouseClipPosition(e);
-        state.mouseClipPosition = [x, y];
-
-        if (state.mouseClipPosition) {
-            const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.translationOffset);
-            const entry = state.bucketMap.getClosestBucketEntryForClipspace(mouseWorldPosition[0], mouseWorldPosition[1]);
-            if (entry) {
-                state.activeBucket = [entry];
+    const workerRequest = worker((event) => {
+        if (event.eventType === 'GRAPH_VISITED_UPDATE_BULK') {
+            for (let i = 0; i < event.eventData.length; i++) {
+                visitedNodesIdxs.push(event.eventData[i]);
             }
         }
+    })
+
+    setLoadingText("Processing OSM PBF data");
+    const osmContext = await initOSM('/assets/kuwait.pbf');
+    // TODO: https://wiki.openstreetmap.org/wiki/Key:highway
+    setLoadingText("Extracting highway subgraphs");
+    const motorways = getSubgraphFromWayWithTag("highway", ["motorway", "motorway_link"], osmContext);
+    const trunks = getSubgraphFromWayWithTag("highway", ["trunk", "trunk_link"], osmContext);
+    const primaries = getSubgraphFromWayWithTag("highway", ["primary", "primary_link"], osmContext);
+    const secondaries = getSubgraphFromWayWithTag("highway", ["secondary", "secondary_link"], osmContext);
+    const tertiaries = getSubgraphFromWayWithTag("highway", ["tertiary", "tertiary_link"], osmContext);
+    const unclassifieds = getSubgraphFromWayWithTag("highway", ["unclassified"], osmContext);
+    const residentials = getSubgraphFromWayWithTag("highway", ["residential"], osmContext);
+    const buildings = getSubgraphFromWayWithTag("building", ["*"], osmContext);
+    const normalizedNodesLonLatArray = initFlatNodeData(osmContext.worldNodes);
+
+    setLoadingText("Initizliaing WebGL Vertex Buffers");
+    // gl buffers
+    const nodes_buffer = initBuffer(glContext, new Float32Array(normalizedNodesLonLatArray), 'vbo');
+    const path_buffer = initBuffer(glContext, new Uint32Array([]), 'vbo');
+
+    const building_nodes_index_buffer = initBuffer(glContext, new Uint32Array(buildings.idxs), 'ebo');
+    const motorways_nodes_index_buffer = initBuffer(glContext, new Uint32Array(motorways.idxs), 'ebo');
+    const trunks_nodes_index_buffer = initBuffer(glContext, new Uint32Array(trunks.idxs), 'ebo');
+    const primaries_nodes_index_buffer = initBuffer(glContext, new Uint32Array(primaries.idxs), 'ebo');
+    const secondaries_nodes_index_buffer = initBuffer(glContext, new Uint32Array(secondaries.idxs), 'ebo');
+    const tertiaries_nodes_index_buffer = initBuffer(glContext, new Uint32Array(tertiaries.idxs), 'ebo');
+    const unclassifieds_nodes_index_buffer = initBuffer(glContext, new Uint32Array(unclassifieds.idxs), 'ebo');
+    const residentials_nodes_index_buffer = initBuffer(glContext, new Uint32Array(residentials.idxs), 'ebo');
+
+    const highlighted_way_nodes_index_buffer = initBuffer(glContext, new Uint32Array(0), 'ebo');
+    const visited_nodes_index_buffer = initBuffer(glContext, new Uint32Array(new Array(osmContext.nodes.length * 2)), 'ebo');
+
+    // gl buffer optimizations
+    let visited_nodes_index_buffer_elements_count = 0;
+
+    setLoadingText("Initizliaing WebGL Array Buffers");
+    // VAOs
+    const default_vao = initVao({
+        glContext,
+        enableLocations: [glContext.uniformColorShader.attributes.a_position],
+        vbos: [],
+        ebo: null
+    })
+
+    const nodes_vao = initVao({
+        glContext,
+        enableLocations: [glContext.uniformColorShader.attributes.a_position],
+        vbos: [
+            {
+                buffer: nodes_buffer,
+                vertexPtr: {
+                    location: glContext.uniformColorShader.attributes.a_position, 
+                    components: 2,
+                    type: glContext.gl.FLOAT
+                }
+            }
+        ],
+        ebo: null,
+    });
+
+    const path_vao = initVao({
+        glContext,
+        enableLocations: [glContext.uniformColorShader.attributes.a_position],
+        vbos: [
+            {
+                buffer: path_buffer,
+                vertexPtr: {
+                    location: glContext.uniformColorShader.attributes.a_position, 
+                    components: 2,
+                    type: glContext.gl.FLOAT
+                }
+            }
+        ],
+        ebo: null,
+    });
+
+    
+    // Quad tree
+    setLoadingText("Loading Quad Tree")
+    let quadTree = new WorldQuadTree();
+    quadTree.populate([
+        ...motorways.worldNodes,
+        ...trunks.worldNodes,
+        ...primaries.worldNodes,
+        ...secondaries.worldNodes,
+        ...tertiaries.worldNodes,
+        ...unclassifieds.worldNodes,
+        ...residentials.worldNodes,
+    ]);
+
+    // State
+    let closestNodeToPointer: WorldNode | undefined;
+    let previousTimestamp: number;
+    let time = 0;
+    let anchor: Vector2 | undefined = undefined;
+    let camera: Camera = {
+        zoom: 100,
+        offset: new Vector2(0, 0),
+        rotation: 2,
+        target: new Vector2(WORLD_WIDTH / 2, WORLD_HEIGHT / 2)
+    }
+    let targetZoom = 1;
+    let targetRotation = 0;
+    let isCtrlPressed = false;
+    let mouseCanvasPosition = new Vector2(0, 0);
+    let mouseWorldPosition = new Vector2(0, 0);
+    let startNodeIdx: number | undefined;
+    let endNodeIdx: number | undefined;
+    let mouseDownTimeout: number | undefined;
+    let pathNodesIdxs: number[] = [];
+    let visitedNodesIdxs: number[] = [];
+
+    setLoadingText("Building Graphs")
+    buildGraph([
+        ...motorways.ways,
+        ...trunks.ways,
+        ...primaries.ways,
+        ...secondaries.ways,
+        ...tertiaries.ways,
+        ...unclassifieds.ways,
+        ...residentials.ways,
+    ], osmContext.nodes, osmContext.nodesIdIdxMap);
+    const workerProxy = await workerRequest;
+    await workerProxy.buildGraph([
+        ...motorways.ways,
+        ...trunks.ways,
+        ...primaries.ways,
+        ...secondaries.ways,
+        ...tertiaries.ways,
+        ...unclassifieds.ways,
+        ...residentials.ways,
+    ], osmContext.nodes, osmContext.nodesIdIdxMap);
 
 
-        if (state.anchor && state.isCtrlPressed) {
-            const dy = state.mouseClipPosition[1] - state.anchor[1];
-            state.rotationAngleRad = dy;
+    window.addEventListener("mouseup", (e) => {
+        anchor = undefined;
+    })
+
+    window.addEventListener("mousedown", (e) => {
+        anchor = getMouseCanvasPosition(e, canvas);
+        if (closestNodeToPointer) {
+            const idx = osmContext.nodesIdIdxMap.get(closestNodeToPointer.id);
+            mouseDownTimeout = window.setTimeout(() => {
+                if (startNodeIdx !== undefined && endNodeIdx !== undefined) {
+                    startNodeIdx = undefined;
+                    endNodeIdx = undefined;
+                    pathNodesIdxs.length = 0;
+                    visitedNodesIdxs.length = 0;
+                }
+                if (startNodeIdx === undefined) {
+                    startNodeIdx = idx
+                } else if (endNodeIdx === undefined) {
+                    endNodeIdx = idx
+                };
+            }, 200);
+        }
+    })
+
+    window.addEventListener("mousemove", (e) => {
+        if (mouseDownTimeout) clearTimeout(mouseDownTimeout);
+        mouseCanvasPosition = getMouseCanvasPosition(e, canvas);
+        mouseWorldPosition = getScreenToWorld(mouseCanvasPosition, camera);
+        closestNodeToPointer = quadTree.getClosestNodeForWorldPosition(mouseWorldPosition);
+
+        if (anchor && isCtrlPressed) {
+            const dy = mouseCanvasPosition.y - anchor.y;
+            targetRotation += dy / 250;
+            anchor = mouseCanvasPosition;
             return;
         }
 
-        if (state.anchor) {
-            const dx = state.mouseClipPosition[0] - state.anchor[0];
-            const dy = state.mouseClipPosition[1] - state.anchor[1];
-            state.translationOffset = [
-                state.translationOffset[0] + (dx / state.scale),
-                state.translationOffset[1] + (dy / state.scale)
-            ]
+        if (anchor) {
+            const delta = mouseCanvasPosition.subtract(anchor);
 
-            state.anchor = [x, y];
+            // Ref https://matthew-brett.github.io/teaching/rotation_2d.html
+            const rotatedAndScaledDelta = new Vector2(
+                Math.cos(-camera.rotation) * delta.x - Math.sin(-camera.rotation) * delta.y,
+                Math.sin(-camera.rotation) * delta.x  + Math.cos(-camera.rotation) * delta.y
+            )
+            .multiply(new Vector2(1 / camera.zoom, 1 / camera.zoom));
+
+            camera.target = camera.target.subtract(rotatedAndScaledDelta)
             
+            anchor = mouseCanvasPosition;
         }
+    })
 
+    canvas.addEventListener('wheel', (e) => {
+        if (e.ctrlKey) {
+            e.preventDefault();
+        }
+        if (e.deltaY < 0) {
+            targetZoom *= 1.5;
+        } else if (targetZoom - 1 > 0) {
+            targetZoom /= 1.5;
+        }
     })
 
     document.addEventListener('contextmenu', event => event.preventDefault());
+
+    window.addEventListener("blur", (e) => {
+        isCtrlPressed = false;
+    });
+    
     window.addEventListener("keydown", (e) => {
         if (e.key === 'Control') {
-            state.isCtrlPressed = true;
+            isCtrlPressed = true;
+        }
+
+        if (e.key === '=') {
+            targetZoom *= 1.5;
+        }
+
+        if (e.key === '-') {
+            targetZoom /= 1.5;
+            if (targetZoom < 1) {
+                targetZoom = 1;
+            }
         }
 
         if (e.code === 'Space') {
-            state.path = [];
-            state.visited.length = 0;
-            proxy.dijkstra(state.startNode, state.nodeIdIdxMap)
-            .then((result: any) => {
-                if (result) {
-                    proxy.findPath(result.previous, state.endNode, state.nodeIdIdxMap)
-                    .then((path: any) => {
-                        if (path) {
-                            state.path = path.map((x: any) => x);
+            pathNodesIdxs.length = 0;
+            visitedNodesIdxs.length = 0;
+            if (startNodeIdx) {
+                workerProxy.dijkstra(startNodeIdx)
+                .then((result: any) => {
+                    if (result) {
+                        if (endNodeIdx) {
+                            pathNodesIdxs = findPath(result.previous, endNodeIdx);
                         }
-                    })
-                } 
-            })
+                    } 
+                })
+            }
         }
     })
 
     window.addEventListener("keyup", (e) => {
         if (e.key === 'Control') {
-            state.isCtrlPressed = false;
+            isCtrlPressed = false;
         }
     })
 
-    state.canvas.addEventListener('wheel', (e) => {
-        if (e.deltaY < 0) {
-            state.targetScale++;
-        } else if (state.targetScale - 1 > 0) {
-            state.targetScale--;
-        }
-    })
 
-    const drawNodes = () => {
-        state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
-        const COMPONENTS_PER_NODE = 2;
-        state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_NODE, state.gl.FLOAT, false, 0, 0);
-
-        state.gl.uniformMatrix3fv(state.u_matrix_location, false, state.mat.data);
-        state.gl.uniform4fv(state.u_color_location, [0, 1, 0, 1]);
-
-        state.gl.drawArrays(
-            state.gl.POINTS,
+    function drawNodes() {
+        glContext.gl.bindVertexArray(nodes_vao);
+        glContext.gl.uniform4fv(glContext.uniformColorShader.uniforms.u_color, NODES_COLOR);
+        glContext.gl.drawArrays(
+            glContext.gl.POINTS,
             0,
-            state.normalizedNodesLonLatArray.length / COMPONENTS_PER_NODE // How many points in the vbo
+            normalizedNodesLonLatArray.length / 2
         );
+        glContext.gl.bindVertexArray(default_vao);;
     }
 
-    const drawWays = () => {
-        state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
+    function drawWays() {
+        glContext.gl.bindVertexArray(nodes_vao);
+
+        glContext.gl.uniform4fv(glContext.uniformColorShader.uniforms.u_color, MOTORWAYS_COLOR);
+        glContext.gl.bindBuffer(glContext.gl.ELEMENT_ARRAY_BUFFER, motorways_nodes_index_buffer);
+        glContext.gl.drawElements(glContext.gl.LINE_STRIP, motorways.idxs.length, glContext.gl.UNSIGNED_INT, 0);
+
+        glContext.gl.uniform4fv(glContext.uniformColorShader.uniforms.u_color, BUILDINGS_COLOR);
+        glContext.gl.bindBuffer(glContext.gl.ELEMENT_ARRAY_BUFFER, building_nodes_index_buffer);
+        glContext.gl.drawElements(glContext.gl.TRIANGLE_STRIP, buildings.idxs.length, glContext.gl.UNSIGNED_INT, 0);
+
+        glContext.gl.uniform4fv(glContext.uniformColorShader.uniforms.u_color, TRUNKS_COLOR);
+        glContext.gl.bindBuffer(glContext.gl.ELEMENT_ARRAY_BUFFER, trunks_nodes_index_buffer);
+        glContext.gl.drawElements(glContext.gl.LINE_STRIP, trunks.idxs.length, glContext.gl.UNSIGNED_INT, 0);
+
+        glContext.gl.uniform4fv(glContext.uniformColorShader.uniforms.u_color, PRIMARIES_COLOR);
+        glContext.gl.bindBuffer(glContext.gl.ELEMENT_ARRAY_BUFFER, primaries_nodes_index_buffer);
+        glContext.gl.drawElements(glContext.gl.LINE_STRIP, primaries.idxs.length, glContext.gl.UNSIGNED_INT, 0);
+
+        glContext.gl.uniform4fv(glContext.uniformColorShader.uniforms.u_color, SECONDARIES_COLOR);
+        glContext.gl.bindBuffer(glContext.gl.ELEMENT_ARRAY_BUFFER, secondaries_nodes_index_buffer);
+        glContext.gl.drawElements(glContext.gl.LINE_STRIP, secondaries.idxs.length, glContext.gl.UNSIGNED_INT, 0);
+
+        glContext.gl.uniform4fv(glContext.uniformColorShader.uniforms.u_color, TERTIARIES_COLOR);
+        glContext.gl.bindBuffer(glContext.gl.ELEMENT_ARRAY_BUFFER, tertiaries_nodes_index_buffer);
+        glContext.gl.drawElements(glContext.gl.LINE_STRIP, tertiaries.idxs.length, glContext.gl.UNSIGNED_INT, 0);
+
+        glContext.gl.uniform4fv(glContext.uniformColorShader.uniforms.u_color, UNCLASSIFIEDS_COLOR);
+        glContext.gl.bindBuffer(glContext.gl.ELEMENT_ARRAY_BUFFER, unclassifieds_nodes_index_buffer);
+        glContext.gl.drawElements(glContext.gl.LINE_STRIP, unclassifieds.idxs.length, glContext.gl.UNSIGNED_INT, 0);
+
+        glContext.gl.uniform4fv(glContext.uniformColorShader.uniforms.u_color, RESIDENTIALS_COLOR);
+        glContext.gl.bindBuffer(glContext.gl.ELEMENT_ARRAY_BUFFER, residentials_nodes_index_buffer);
+        glContext.gl.drawElements(glContext.gl.LINE_STRIP, residentials.idxs.length, glContext.gl.UNSIGNED_INT, 0);
+        
+        glContext.gl.bindVertexArray(default_vao);;
+    }
+
+
+    function drawQuadtreeData(time: number) {
+        glContext.gl.bindBuffer(glContext.gl.ARRAY_BUFFER, nodes_buffer);
         const COMPONENTS_PER_WAY = 2;
-        state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_WAY, state.gl.FLOAT, false, 0, 0);
+        glContext.gl.vertexAttribPointer(glContext.uniformColorShader.attributes.a_position, COMPONENTS_PER_WAY, glContext.gl.FLOAT, false, 0, 0);
 
-        state.gl.uniformMatrix3fv(state.u_matrix_location, false, state.mat.data);
-        state.gl.uniform4fv(state.u_color_location, [0.5, 0.35, 0.61, 1]);
+        glContext.gl.uniform4fv(glContext.uniformColorShader.uniforms.u_color, QUADTREE_POINT_COLOR);
 
-        state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, building_nodes_index_ebo);
-        // Count is for the elements in the ebo, not vbo.
-        state.gl.drawElements(state.gl.TRIANGLE_STRIP, state.buildingNodesIdxs.length, state.gl.UNSIGNED_INT, 0);
-
-        state.gl.uniform4fv(state.u_color_location, [0, 0.8, 0.99, 1]);
-        state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, highway_nodes_index_ebo);
-        state.gl.drawElements(state.gl.LINE_STRIP, state.highwayNodesIdxs.length, state.gl.UNSIGNED_INT, 0);
-
-
-    }
-
-    const drawClipAxis = () => {
-        drawLine(1, 0, -1, 0);
-        drawLine(0, 1, 0, -1);
-    }
-
-    const drawBucket = () => {
-        state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
-        const COMPONENTS_PER_WAY = 2;
-        state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_WAY, state.gl.FLOAT, false, 0, 0);
-
-        state.gl.uniformMatrix3fv(state.u_matrix_location, false, state.mat.data);
-        state.gl.uniform4fv(state.u_color_location, [1, 0, 0, 1]);
-
-        const centers: number[][] = [];
-        for (let i = 0; i < state.activeBucket.length; i++) {
-            const idx = state.activeBucket[i].glIndex;
-            if (idx === 0xFFFFFFFF) continue;
-            const lon = state.normalizedNodesLonLatArray[idx * 2];
-            const lat = state.normalizedNodesLonLatArray[idx * 2 + 1];
-            centers.push([lon, lat]);
-            drawCircle(lon, lat, 0.003 / state.scale, [1, 1, 0]);
-        }
-    }
-
-    const drawStartEndNodes = (dt: number) => {
-        state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
-        const COMPONENTS_PER_WAY = 2;
-        state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_WAY, state.gl.FLOAT, false, 0, 0);
-
-        state.gl.uniformMatrix3fv(state.u_matrix_location, false, state.mat.data);
-        state.gl.uniform4fv(state.u_color_location, [1, 0, 0, 1]);
-
-        if (state.startNodeTarget) {
-            if (state.startNodeCurrent) {
-                state.startNodeCurrent = state.startNodeCurrent
-                    .add(
-                        state.startNodeTarget
-                        .subtract(state.startNodeCurrent)
-                        .scalar(dt * 50)    
-                    )
-            } else {
-                state.startNodeCurrent = state.startNodeTarget;
-            }
-    
+        if (closestNodeToPointer) {
+            const idx = osmContext.nodesIdIdxMap.get(closestNodeToPointer.id)!!;
+            const lon = normalizedNodesLonLatArray[idx * 2];
+            const lat = normalizedNodesLonLatArray[idx * 2 + 1];
             drawCircle(
-                state.startNodeCurrent.x(), 
-                state.startNodeCurrent.y(), 
-                0.006 / state.scale, 
-                [0, 1, 0]
-            );
-        }
-
-        if (state.endNodeTarget) {
-            if (state.endNodeCurrent) {
-                state.endNodeCurrent = state.endNodeCurrent
-                    .add(
-                        state.endNodeTarget
-                        .subtract(state.endNodeCurrent)
-                        .scalar(dt * 50)    
-                    )
-            } else {
-                state.endNodeCurrent = state.endNodeTarget;
-            }
-    
-            drawCircle(
-                state.endNodeCurrent.x(), 
-                state.endNodeCurrent.y(), 
-                0.006 / state.scale, 
-                [1, 0, 0]
+                glContext, 
+                new Vector2(lon, lat), 
+                (5 + (3 * Math.sin(time * 5))) / camera.zoom, 
+                new Color(1, 0.9 + (Math.sin(time * 5) * 0.1), 1, 1)
             );
         }
     }
 
+    function updateOverlay(dt: number) {
+        const fpsElement = document.querySelector("#fpsTarget") as HTMLSpanElement;
+        fpsElement.innerHTML = `${(Math.floor(1 / dt)).toFixed(0)}`;
+        const nodesCountElement = document.querySelector("#nodesCount") as HTMLSpanElement;
+        nodesCountElement.innerHTML = `${osmContext.metadata.nodesCount}`;
+        const cameraTargetElement = document.querySelector("#cameraTarget") as HTMLSpanElement;
+        cameraTargetElement.innerHTML = `${camera.target.x.toFixed(2)}, ${camera.target.y.toFixed(2)}`
+        const cameraZoomElement = document.querySelector("#cameraZoom") as HTMLSpanElement;
+        cameraZoomElement.innerHTML = `${camera.zoom.toFixed(2)}`
+        const cameraRotationElement = document.querySelector("#cameraRotation") as HTMLSpanElement;
+        cameraRotationElement.innerHTML = `${camera.rotation.toFixed(2)}`
+        const mouseCanvasPositionElement = document.querySelector("#mouseCanvasPosition") as HTMLSpanElement;
+        mouseCanvasPositionElement.innerHTML = `${mouseCanvasPosition.x.toFixed(2)}, ${(mouseCanvasPosition.y).toFixed(2)}`
+        const mouseWorldPositionElement = document.querySelector("#mouseWorldPosition") as HTMLSpanElement;
+        mouseWorldPositionElement.innerHTML = `${mouseWorldPosition.x.toFixed(2)}, ${mouseWorldPosition.y.toFixed(2)}`
+    }
 
-    // TODO: figure out how to manage this in a cleaner way.
-    let visited_index_ebo_length = 0;
-    let path_buffer_vbo_length = 0;
+    function drawWayHighlight() {
+        if (closestNodeToPointer) {
+            const wayIdxs = osmContext.nodesIdWayIdxsMap.get(closestNodeToPointer.id) as number[];
+            if (wayIdxs === undefined) {
+                // https://help.openstreetmap.org/questions/50206/orphan-nodes-and-ways
+                return;
+            }
+            const ways =  wayIdxs.map(wayIdx => osmContext.ways[wayIdx])
+            const nodeIdxs = ways
+                .reduce((acc, way) => [...acc, ...way.node_ids, "*"], [] as string[])
+                .map(nodeId => {    
+                    if (nodeId === "*") return 0xFFFFFFFF
+                    return osmContext.nodesIdIdxMap.get(nodeId) as number
+                });
 
-    const drawGraphData = () => {
-        const visitedIdxs = state.visited;
+            glContext.gl.bindVertexArray(nodes_vao);
+            glContext.gl.uniform4fv(glContext.uniformColorShader.uniforms.u_color, HIGHLIGHTED_WAYS_COLOR);
+            glContext.gl.bindBuffer(glContext.gl.ELEMENT_ARRAY_BUFFER, highlighted_way_nodes_index_buffer)
+            glContext.gl.bufferData(glContext.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(nodeIdxs), glContext.gl.STATIC_DRAW);
+            glContext.gl.drawElements(glContext.gl.LINE_STRIP, nodeIdxs.length, glContext.gl.UNSIGNED_INT, 0);
+            glContext.gl.bindVertexArray(default_vao);;
 
-        state.gl.bindBuffer(state.gl.ARRAY_BUFFER, nodes_buffer);
-        const COMPONENTS_PER_WAY = 2;
-        state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_WAY, state.gl.FLOAT, false, 0, 0);
-        state.gl.uniformMatrix3fv(state.u_matrix_location, false, state.mat.data);
-        state.gl.uniform4fv(state.u_color_location, [1, 0.5, 0, 1]);
+            const tagsArray = []
+            for (let i = 0; i < ways.length; i++) {
+                tagsArray.push(...Object.entries(ways[i].tags).map((([k, v]) => `<div>${k}: ${v}</div>`)));
+            }
+
+            const wayTagsElement = document.querySelector("#wayTags") as HTMLSpanElement;
+            wayTagsElement.innerHTML = tagsArray.join(" ");
+            
+        }
+    }
+
+    function drawPathfindingAlgorithm() {
+        if (startNodeIdx) {
+            const lon = normalizedNodesLonLatArray[startNodeIdx * 2];
+            const lat = normalizedNodesLonLatArray[startNodeIdx * 2 + 1];
+            drawCircle(glContext, new Vector2(lon, lat), (10 + (3 * Math.sin(time * 10))) / camera.zoom, START_NODE_COLOR);
+        }
+
+        if (endNodeIdx) {
+            const lon = normalizedNodesLonLatArray[endNodeIdx * 2];
+            const lat = normalizedNodesLonLatArray[endNodeIdx * 2 + 1];
+            drawCircle(glContext, new Vector2(lon, lat), (10 + (3 * Math.sin(time * 10))) / camera.zoom, END_NODE_COLOR);
+        }
+        
         
         {   // Visited nodes highlighting
-            state.gl.bindBuffer(state.gl.ELEMENT_ARRAY_BUFFER, visited_index_ebo);
-            if (visitedIdxs.length != visited_index_ebo_length) {
-                state.gl.bufferData(state.gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(visitedIdxs), state.gl.STATIC_DRAW);
-                visited_index_ebo_length = visitedIdxs.length;
+            glContext.gl.bindVertexArray(nodes_vao);
+            glContext.gl.bindBuffer(glContext.gl.ELEMENT_ARRAY_BUFFER, visited_nodes_index_buffer);
+            if (visitedNodesIdxs.length !== visited_nodes_index_buffer_elements_count) {
+                glContext.gl.bufferSubData(
+                    glContext.gl.ELEMENT_ARRAY_BUFFER, 
+                    visited_nodes_index_buffer_elements_count * 4, 
+                    new Uint32Array(visitedNodesIdxs.slice(visited_nodes_index_buffer_elements_count))
+                )
+                visited_nodes_index_buffer_elements_count = visitedNodesIdxs.length;
             }
-            state.gl.drawElements(state.gl.LINES, visited_index_ebo_length, state.gl.UNSIGNED_INT, 0);
+            glContext.gl.uniform4fv(glContext.uniformColorShader.uniforms.u_color, VISITED_NODE_COLOR);
+            glContext.gl.drawElements(glContext.gl.LINES, visitedNodesIdxs.length, glContext.gl.UNSIGNED_INT, 0);
+            glContext.gl.bindVertexArray(default_vao);
         }
 
         {   // Path highlighting
-
-            // TODO: move this outside of the drawing loop
             const lines = [];
             
-            for (let i = 0 ; i < state.path.length - 1; i+= 1) {
-                const startIdx = state.path[i];
-                const endIdx = state.path[i + 1];
-                const startNode = state.normalizedNodesLonLatArray.slice(startIdx * 2, startIdx * 2 + 2)
-                const endnode = state.normalizedNodesLonLatArray.slice(endIdx * 2, endIdx * 2 + 2)
-                const line = prepareDrawLineExBufferData(new Matrix(1, 2, startNode), new Matrix(1, 2, endnode), (0.01 / 3) / state.scale);
+            for (let i = 0 ; i < pathNodesIdxs.length - 1; i+= 1) {
+                const startIdx = pathNodesIdxs[i];
+                const endIdx = pathNodesIdxs[i + 1];
+                const startNode = normalizedNodesLonLatArray.slice(startIdx * 2, startIdx * 2 + 2)
+                const endnode = normalizedNodesLonLatArray.slice(endIdx * 2, endIdx * 2 + 2)
+                const line = prepareDrawLineExBufferData(new Vector2(startNode[0], startNode[1]), new Vector2(endnode[0], endnode[1]), 5 / camera.zoom);
                 lines.push(...line);
             }
 
-            state.gl.bindBuffer(state.gl.ARRAY_BUFFER, path_buffer_vbo);
-            if (lines.length != path_buffer_vbo_length) { // TODO: Doesn't re-render on scaling
-                state.gl.bufferData(state.gl.ARRAY_BUFFER, new Float32Array(lines), state.gl.STATIC_DRAW);
-                path_buffer_vbo_length = lines.length;
-            }
-            const COMPONENTS_PER_ELEMENT = 2;
-            state.gl.vertexAttribPointer(state.position_location, COMPONENTS_PER_ELEMENT, state.gl.FLOAT, false, 0, 0);
-            state.gl.uniform4fv(state.u_color_location, new Matrix(1, 4, [1, 1 ,0, 1]).data);
-            state.gl.drawArrays(state.gl.TRIANGLE_STRIP, 0, path_buffer_vbo_length / COMPONENTS_PER_ELEMENT);
+            glContext.gl.bindVertexArray(path_vao)
+            glContext.gl.bindBuffer(glContext.gl.ARRAY_BUFFER, path_buffer);
+            glContext.gl.bufferData(glContext.gl.ARRAY_BUFFER, new Float32Array(lines), glContext.gl.STATIC_DRAW);
+            glContext.gl.uniform4fv(glContext.uniformColorShader.uniforms.u_color, SHORTEST_PATH_COLOR);
+            glContext.gl.drawArrays(glContext.gl.TRIANGLE_STRIP, 0, lines.length / 2);
+            glContext.gl.bindVertexArray(default_vao);
         }
     }
+
+    function drawFrame(timestamp: number) {
+        const dt = (timestamp - previousTimestamp) / 1000;
+        previousTimestamp = timestamp;
+        time += dt;
+
+        glContext.gl.clearColor(0, 0, 0, 1);
+        glContext.gl.clear(glContext.gl.COLOR_BUFFER_BIT);
+        glContext.gl.viewport(0, 0, canvas.clientWidth, canvas.clientHeight);
+        glContext.gl.bindVertexArray(default_vao);
+        resizeCanvasToDisplaySize(canvas);
+        camera.offset.x = canvas.clientWidth / 2;
+        camera.offset.y = canvas.clientHeight / 2;
+
+        const P = Matrix.projection(canvas.clientWidth, canvas.clientHeight);
+        const CAM_P = getCameraMatrix(camera).multiply(P);
+        gl.uniformMatrix3fv(glContext.uniformColorShader.uniforms.u_matrix, false, CAM_P.data);
         
-        // Drawing Loop
-        const loop = (timestamp: number) => {
-            const dt = (timestamp - state.previous_render_timestamp) / 1000;
-        if (dt <= 0) window.requestAnimationFrame(loop);
-        state.previous_render_timestamp = timestamp;
-        // red, green, blue, alpha
-        state.gl.clearColor(0, 0, 0, 1);
-        state.gl.clear(state.gl.COLOR_BUFFER_BIT);
-        state.gl.viewport(0, 0, state.gl.canvas.width, state.gl.canvas.height);
-
-        state.mat = Matrix.identity();
-        state.mat = state.mat.translate(state.translationOffset[0], state.translationOffset[1]);
-        state.mat = state.mat.rotate(state.rotationAngleRad);
-        state.mat = state.mat.scale(state.scale, state.scale);
-
-
+        drawQuadtreeData(time);
         drawWays();
-        drawGraphData();
-        drawNodes;
-        drawClipAxis;
-        drawBucket();
-        drawStartEndNodes(dt);
-        if (state.mouseClipPosition) {
-            // const mouseWorldPosition = getMouseWorldPosition(state.mouseClipPosition, state.scale, state.translationOffset);
-            // drawCircle(mouseWorldPosition[0], mouseWorldPosition[1], 0.005 / state.scale);
-        }
+        // drawNodes();
+        drawCircle(glContext, camera.target, 5 / camera.zoom, CAMERA_TARGET_COLOR)
+        drawWayHighlight();
+        drawPathfindingAlgorithm();
+        updateOverlay(dt);
 
-        // if (state.startNode) {
-        //     drawCircle(state.startNode.lon, state.startNode.lat, 0.006 / state.scale, [0, 1, 0]);
-        // }
+        // X,Y axis
+        drawLine(glContext, new Vector2(-canvas.clientWidth / 2, 0), new Vector2(canvas.clientWidth / 2, 0), X_AXIS_COLOR);
+        drawLine(glContext, new Vector2(0, -canvas.clientHeight / 2), new Vector2(0, canvas.clientHeight / 2), Y_AXIS_COLOR);
 
-        // if (state.endNode) {
-        //     drawCircle(state.endNode.lon, state.endNode.lat, 0.006 / state.scale, [1, 0, 0]);
-        // }
+        // World outline
+        drawLine(glContext, new Vector2(0, 0), new Vector2(WORLD_WIDTH, 0), WORLD_OUTLINE_COLOR);
+        drawLine(glContext, new Vector2(WORLD_WIDTH, 0), new Vector2(WORLD_WIDTH, WORLD_HEIGHT), WORLD_OUTLINE_COLOR);
+        drawLine(glContext, new Vector2(WORLD_WIDTH, WORLD_HEIGHT), new Vector2(0, WORLD_HEIGHT), WORLD_OUTLINE_COLOR);
+        drawLine(glContext, new Vector2(0, WORLD_HEIGHT), new Vector2(0, 0), WORLD_OUTLINE_COLOR);
 
-        state.scale += (state.targetScale - state.scale) * 10 * dt;
-        window.requestAnimationFrame(loop);
+        camera.zoom += (targetZoom - camera.zoom) * 10 * dt;
+        camera.rotation += (targetRotation - camera.rotation) * 20 * dt;
+        window.requestAnimationFrame(drawFrame);
     }
-    window.requestAnimationFrame((timestamp) => {
-        state.previous_render_timestamp = timestamp;
 
-        window.requestAnimationFrame(loop);
-    });
-
+    window.requestAnimationFrame(timestamp => {
+        previousTimestamp = timestamp;
+        hideLoading();
+        window.requestAnimationFrame(drawFrame);
+    })
 })

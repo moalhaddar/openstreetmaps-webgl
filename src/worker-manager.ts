@@ -1,13 +1,21 @@
-import { state } from "./state.js";
+import { WorkerInstance } from "./graph-worker";
 
-export function worker(): Promise<Record<any, any>> {
-    const proxy: Record<any, any> = {};
+type PromiseWrapped<T> = {
+    [K in keyof T]: T[K] extends (...args: infer A) => infer R
+      ? (...args: A) => Promise<R>
+      : never;
+  };
+
+type AsyncWorkerInstance = PromiseWrapped<WorkerInstance>;
+
+export function worker(cb: (data: any) => void): Promise<AsyncWorkerInstance> {
+    const proxy: Partial<AsyncWorkerInstance> = {};
  
     let id = 0;
     let idPromises: Record<any, any> = {};
 
     return new Promise((resolve, reject) => {
-        const worker = new Worker('/dist/graph-worker.js', {type: 'module'});
+        const worker = new Worker('/graph-worker.js', {type: 'module'});
         worker.postMessage({
             eventType: "INITIALISE" 
         });
@@ -19,6 +27,7 @@ export function worker(): Promise<Record<any, any>> {
             if (eventType === "INITIALISED") {
                 const methods = event.data.eventData;
                 methods.forEach((method: any) => {
+                    // @ts-ignore
                     proxy[method] = function() {
                         return new Promise((resolve, reject) => {
                             worker.postMessage({
@@ -35,6 +44,7 @@ export function worker(): Promise<Record<any, any>> {
                         });
                     }
                 });
+                // @ts-ignore
                 resolve(proxy);
                 return;
             } else if (eventType === "RESULT") {
@@ -47,14 +57,16 @@ export function worker(): Promise<Record<any, any>> {
                     idPromises[eventId].reject(event.data.eventData);
                     delete idPromises[eventId];
                 }
-            } else if (eventType === 'GRAPH_VISITED_UPDATE') {
-                state.visited.push(eventData.parentNode,eventData.node);
-            } else if (eventType === 'GRAPH_VISITED_UPDATE_BULK') {
-                for (let i = 0; i < eventData.length; i++) {
-                    state.visited.push(eventData[i]);
-                }
+            } else {
+                cb(event.data);
             }
-             
+            // } else if (eventType === 'GRAPH_VISITED_UPDATE') {
+            //     state.visited.push(eventData.parentNode,eventData.node);
+            // } else if (eventType === 'GRAPH_VISITED_UPDATE_BULK') {
+            //     for (let i = 0; i < eventData.length; i++) {
+            //         state.visited.push(eventData[i]);
+            //     }
+            // }
         });
  
         worker.addEventListener("error", function(error) {
