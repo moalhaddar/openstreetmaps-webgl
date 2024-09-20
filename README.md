@@ -21,8 +21,12 @@ Dijkstra algorithm is implemented using a priority queue. The algorithm runs in 
 All the math (Matrices, vectors) are implemented from scratch for educational purposes.
 
 # How can i run the project?
-- You'll need a browser
-- You'll need to serve webpack dev server using `yarn start`
+- You can view the project on https://moalhaddar.github.io/openstreetmaps-webgl/
+
+Or manually:
+- `git clone this repo`
+- `yarn`
+- `yarn start`
 
 # How can i supply my own data?
 You can do so by downloading an [OSM extract](https://wiki.openstreetmap.org/wiki/Planet.osm) as a protobuf file and replace it with [./assets/kuwait.pbf](./assets/kuwait.pbf). You can use [BBBike extract](https://extract.bbbike.org/) service to help you do that easily 
