@@ -1,9 +1,13 @@
 # Open street maps WebGL
 This is an educational project that aims to render and act on the Open Street Maps (OSM) data.
 The data is parsed then rendered on the browser using WebGL2. The project allows you to apply dijkstra algorithm
-on starting/ending nodes defined by `left` mouse clicks. The algorithm runs in a seperate worker to not block the UI thread.
+on starting/ending nodes defined by `left` mouse clicks. First being the start node (green), second being the end node (red).
+
+You can zoom in and out using the mouse wheel. You can also rotate the map using `ctrl` and moving the mouse while holding `left` mouse button.
 
 To start the algorithm, simply select the nodes, then press `space` on the keyboard.
+
+The algorithm runs in a seperate worker to not block the UI thread.
 
 # How does it work?
 The data is processed as nodes. Each node is a point in earth coordinates (longitude, latitude). The distance between the nodes (read coordinates) is computed using the [haversine formula](https://en.wikipedia.org/wiki/Haversine_formula). A graph is built as an adjacency matrix, and the weights are simply the distances compued using haversine formula. The graph is built with partial data that only represents the highways with specific values to avoid running the algorithm on pedestrain/walk-only/private spaces nodes, while not perfect, it tends to do roughly a great job in determining the closest path.
