@@ -1,6 +1,10 @@
 # Open street maps WebGL
+| ![](./assets/header.png) |
+|:--:|
+| _To learn is to navigate new paths._ |
+
 This is an educational project that aims to render and act on the Open Street Maps (OSM) data.
-The data is parsed then rendered on the browser using WebGL2. The project allows you to apply dijkstra algorithm
+The data is parsed then rendered in the browser using WebGL2. The project allows you to apply dijkstra algorithm
 on starting/ending nodes defined by `left` mouse clicks. First being the start node (green), second being the end node (red).
 
 You can zoom in and out using the mouse wheel. You can also rotate the map using `ctrl` and moving the mouse while holding `left` mouse button.
